@@ -66,7 +66,7 @@ class OfflineExtractor(BaseExtractor):
                 val = m.group("val").strip(" 的，,。")
                 if len(ent) < 2 or len(val) < 1:
                     continue
-                hits.append(ModelHit(ent, predicate, val, conf, f"llm:{self.name}"))
+                hits.append(ModelHit(ent, predicate, val, conf, self.name))
 
         # 句法骨架通道：主谓宾齐全但规则未覆盖时，用谓词词表回推
         frame = analyse(text)
@@ -79,7 +79,7 @@ class OfflineExtractor(BaseExtractor):
                             predicate,
                             frame.obj.strip(" 的，,。"),
                             0.44,
-                            f"llm:{self.name}",
+                            self.name,
                         )
                     )
                     break
@@ -142,7 +142,7 @@ class OpenAICompatExtractor(BaseExtractor):
             ent, pred, val = item.get("entity"), item.get("predicate"), item.get("value")
             if not (ent and pred in PREDICATES and val):
                 continue
-            out.append(ModelHit(str(ent), pred, str(val), 0.55, f"llm:{self.name}"))
+            out.append(ModelHit(str(ent), pred, str(val), 0.55, self.name))
         return _dedupe(out)
 
 
