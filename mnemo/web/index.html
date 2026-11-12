@@ -93,6 +93,9 @@
   .answer.on { display: block; }
   .cites { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
   .cite { font-size: 12px; color: var(--muted); }
+  .answer table.md { border-collapse: collapse; margin: 6px 0; font-size: 13px; }
+  .answer table.md th, .answer table.md td { border: 1px solid #dfe6ff; padding: 3px 9px; text-align: left; }
+  .answer table.md th { background: #fff; font-weight: 600; }
 
   /* 记忆面板 */
   .ent { border-bottom: 1px solid var(--line); }
@@ -143,6 +146,17 @@
   .tabs { display: flex; gap: 4px; margin-left: auto; }
   .tabs button { padding: 3px 10px; font-size: 12px; border-radius: 6px; }
   .tabs button.on { background: var(--accent-soft); border-color: #dfe6ff; color: var(--accent); }
+
+  /* agent 轨迹 */
+  .agent-step { display: flex; gap: 8px; padding: 6px 0; border-bottom: 1px dashed #f0f1f3; font-size: 12px; font-family: inherit; }
+  .agent-step:last-child { border-bottom: 0; }
+  .agent-step .k { flex: 0 0 40px; font-size: 11px; font-weight: 600; color: var(--accent); }
+  .agent-step .k.obs { color: var(--muted); }
+  .agent-step .k.err { color: var(--red); }
+  .agent-step .body { flex: 1; word-break: break-word; color: #374151; }
+  .agent-step .tool { font-family: var(--mono); color: var(--ink); }
+  .agent-meta { margin-top: 8px; font-size: 11px; color: var(--muted); font-family: var(--mono); }
+  .agent-meta.bad { color: var(--red); }
 </style>
 </head>
 <body>
@@ -157,7 +171,13 @@
 <main>
   <section>
     <div class="panel">
-      <div class="panel-h">提问</div>
+      <div class="panel-h">
+        提问
+        <div class="tabs" id="mode">
+          <button data-m="pipeline" class="on">流水线</button>
+          <button data-m="agent">Agent</button>
+        </div>
+      </div>
       <div class="panel-b">
         <div class="ask-row">
           <input id="q" type="text" placeholder="例如：支付网关现在谁负责？" />
@@ -193,7 +213,7 @@
 
 <script>
 const $ = (s) => document.querySelector(s);
-const state = { filter: 'all', entities: [], open: new Set() };
+const state = { filter: 'all', entities: [], open: new Set(), mode: 'pipeline' };
 
 function toast(msg) {
   const t = $('#toast');
@@ -211,12 +231,15 @@ async function api(path, opts) {
 /* ---------------- 统计 ---------------- */
 async function loadStats() {
   const s = await api('/api/stats');
+  let agent = { ready: false, model: '' };
+  try { agent = await api('/api/agent/info'); } catch (e) { /* 老服务没有这个路由 */ }
   $('#badges').innerHTML = [
     ['实体', s.entities], ['消息', s.messages], ['断言', s.assertions],
     ['有效', s.active], ['待确认', s.disputed], ['已取代', s.superseded],
     ['规则', s.learned_rules],
   ].map(([k, v]) => `<span class="badge">${k} <b>${v}</b></span>`).join('')
-    + `<span class="badge">编排 <b>${s.backend}</b></span>`;
+    + `<span class="badge">编排 <b>${s.backend}</b></span>`
+    + `<span class="badge">Agent <b>${agent.ready ? escapeHtml(agent.model) : '未配置'}</b></span>`;
 }
 
 /* ---------------- 记忆面板 ---------------- */
@@ -343,6 +366,7 @@ function ask(text) {
   const q = text || $('#q').value.trim();
   if (!q) return;
   $('#q').value = q;
+  if (state.mode === 'agent') return askAgent(q);
   const stream = $('#stream');
   const answer = $('#answer');
   stream.className = 'stream on';
@@ -381,6 +405,89 @@ function ask(text) {
   es.onerror = () => { es.close(); $('#askBtn').disabled = false; };
 }
 
+/* ---------------- Agent ---------------- */
+const STEP_CN = { thought: '思考', tool_call: '调用', observation: '结果', answer: '结论' };
+
+function askAgent(q) {
+  const stream = $('#stream');
+  const answer = $('#answer');
+  stream.className = 'stream on';
+  stream.innerHTML = '';
+  answer.className = 'answer';
+  answer.textContent = '';
+  $('#askBtn').disabled = true;
+
+  const es = new EventSource('/api/agent/stream?q=' + encodeURIComponent(q));
+  es.onmessage = (e) => {
+    if (e.data === '[DONE]') { es.close(); $('#askBtn').disabled = false; return; }
+    let ev;
+    try { ev = JSON.parse(e.data); } catch { return; }
+
+    if (ev.stage === 'agent_step') { addStep(stream, ev.step); return; }
+
+    if (ev.stage === 'final') {
+      es.close();
+      $('#askBtn').disabled = false;
+      answer.className = 'answer on';
+      const bad = (ev.invalid_citations || []).length;
+      answer.innerHTML = mdLite(ev.answer)
+        + (ev.citations && ev.citations.length
+          ? '<div class="cites">' + ev.citations.map(c =>
+              `<div class="cite" title="${escapeHtml(c.assertion_id)}">↳ ${escapeHtml(c.speaker || '')} · ${escapeHtml(c.ts || '')}　「${escapeHtml(c.source_quote || '')}」</div>`).join('') + '</div>'
+          : '')
+        + `<div class="agent-meta${bad ? ' bad' : ''}">${ev.tool_calls} 次工具调用 · ${(ev.usage || {}).total_tokens || 0} tokens · ${(ev.elapsed_ms / 1000).toFixed(1)}s · 停止 ${ev.stop_reason}`
+        + (bad ? ` · 无效引用 ${ev.invalid_citations.join(', ')}` : '') + '</div>';
+      return;
+    }
+
+    if (ev.stage === 'error') {
+      es.close();
+      $('#askBtn').disabled = false;
+      answer.className = 'answer on';
+      answer.textContent = 'Agent 未执行：' + (ev.message || '未知错误');
+    }
+  };
+
+  es.onerror = () => { es.close(); $('#askBtn').disabled = false; };
+}
+
+function addStep(box, s) {
+  const el = document.createElement('div');
+  el.className = 'agent-step';
+  const mark = (s.ok === false ? ' err' : (s.kind === 'observation' ? ' obs' : ''));
+  const body = s.kind === 'tool_call'
+    ? `<span class="tool">${escapeHtml(s.tool)}</span> <span style="color:#9aa3af">${escapeHtml(JSON.stringify(s.args))}</span>`
+    : escapeHtml((s.content || '').slice(0, 320));
+  el.innerHTML = `<span class="k${mark}">${STEP_CN[s.kind] || s.kind}</span><div class="body">${body}</div>`;
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+}
+
+function mdLite(s) {
+  const lines = escapeHtml(s).split('\n');
+  const out = [];
+  let table = [];
+  const flush = () => {
+    if (!table.length) return;
+    const rows = table
+      .filter(r => !/^\|[\s:|-]+\|$/.test(r))
+      .map(r => r.replace(/^\||\|$/g, '').split('|').map(c => c.trim()));
+    const head = rows.shift() || [];
+    out.push('<table class="md"><thead><tr>' + head.map(c => `<th>${c}</th>`).join('') + '</tr></thead><tbody>'
+      + rows.map(r => '<tr>' + r.map(c => `<td>${c}</td>`).join('') + '</tr>').join('')
+      + '</tbody></table>');
+    table = [];
+  };
+  for (const ln of lines) {
+    const t = ln.trim();
+    if (t.startsWith('|') && t.endsWith('|')) { table.push(t); continue; }
+    flush();
+    out.push(ln.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>'));
+  }
+  flush();
+  return out.join('<br>');
+}
+
 function summarize(ev) {
   const skip = new Set(['stage', 'ts']);
   const parts = [];
@@ -412,6 +519,12 @@ function escapeHtml(s) {
 /* ---------------- 启动 ---------------- */
 $('#askBtn').onclick = () => ask();
 $('#q').addEventListener('keydown', e => { if (e.key === 'Enter') ask(); });
+$('#mode').addEventListener('click', e => {
+  if (e.target.tagName !== 'BUTTON') return;
+  $('#mode').querySelectorAll('button').forEach(b => b.classList.remove('on'));
+  e.target.classList.add('on');
+  state.mode = e.target.dataset.m;
+});
 $('#tabs').addEventListener('click', e => {
   if (e.target.tagName !== 'BUTTON') return;
   $('#tabs').querySelectorAll('button').forEach(b => b.classList.remove('on'));

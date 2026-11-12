@@ -9,6 +9,21 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DB = REPO_ROOT / "data" / "mnemo.db"
 
 
+def _load_dotenv(path: Path = REPO_ROOT / ".env") -> None:
+    """读本地 .env；已存在的环境变量优先，不覆盖。"""
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+
+
+_load_dotenv()
+
+
 def _env_float(name: str, default: float) -> float:
     raw = os.environ.get(name)
     if raw is None or raw == "":
@@ -69,6 +84,19 @@ class Settings:
     llm_provider: str = os.environ.get("MNEMO_LLM_PROVIDER", "offline")
     llm_model: str = os.environ.get("MNEMO_LLM_MODEL", "qwen2.5-1.5b-instruct")
     llm_base_url: str = os.environ.get("MNEMO_LLM_BASE_URL", "")
+
+    # --- Agent 循环 ---
+    agent_max_steps: int = _env_int("MNEMO_AGENT_MAX_STEPS", 6)
+    agent_max_tool_calls: int = _env_int("MNEMO_AGENT_MAX_TOOL_CALLS", 10)
+    agent_timeout: float = _env_float("MNEMO_AGENT_TIMEOUT", 60.0)
+
+    @property
+    def llm_api_key(self) -> str:
+        return os.environ.get("MNEMO_LLM_API_KEY", "")
+
+    @property
+    def llm_ready(self) -> bool:
+        return bool(self.llm_base_url and self.llm_api_key)
 
     def with_overrides(self, **kwargs) -> "Settings":
         return replace(self, **kwargs)

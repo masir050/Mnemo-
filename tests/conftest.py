@@ -1,8 +1,14 @@
 """测试夹具：每个用例一份独立的 SQLite 文件，互不污染。"""
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
+
+# 测试一律走离线抽取，不许碰真实模型（.env 里配了 key 也不影响）
+os.environ["MNEMO_LLM_PROVIDER"] = "offline"
+os.environ.pop("MNEMO_LLM_BASE_URL", None)
+os.environ.pop("MNEMO_LLM_API_KEY", None)
 
 import pytest
 

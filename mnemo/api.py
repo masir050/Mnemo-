@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from .config import DEFAULT_SETTINGS
+from .agent import AgentRunner, ModelError, build_model
 from .db import DEFAULT_DB
 from .extract.pipeline import ExtractorPipeline
 from .feedback import FeedbackLoop
@@ -36,6 +37,7 @@ _store: Store | None = None
 _runner: MnemoRunner | None = None
 _feedback: FeedbackLoop | None = None
 _pipeline: ExtractorPipeline | None = None
+_agent: AgentRunner | None = None
 
 
 def get_store() -> Store:
@@ -67,6 +69,19 @@ def get_feedback() -> FeedbackLoop:
     get_store()
     assert _feedback is not None
     return _feedback
+
+
+def get_agent() -> AgentRunner:
+    """agent 需要模型；没配就 503，而不是悄悄退回固定流水线。"""
+    global _agent
+    store = get_store()
+    if _agent is None:
+        try:
+            model = build_model(store.settings)
+        except ModelError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        _agent = AgentRunner(store, model)
+    return _agent
 
 
 # --------------------------------------------------------------------------- 模型
@@ -238,6 +253,72 @@ def ask_stream(q: str):
         except Exception as exc:  # 前端要能看到失败原因，不能静默断流
             payload = json.dumps({"stage": "error", "message": str(exc)}, ensure_ascii=False)
             yield f"data: {payload}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+class AgentAsk(BaseModel):
+    question: str = Field(min_length=1, max_length=500)
+
+
+@app.get("/api/agent/info")
+def agent_info():
+    store = get_store()
+    s = store.settings
+    from .agent.tools import SCHEMA_NAMES
+
+    return {
+        "ready": bool(s.llm_base_url and s.llm_api_key),
+        "model": s.llm_model,
+        "base_url": s.llm_base_url,
+        "max_steps": s.agent_max_steps,
+        "max_tool_calls": s.agent_max_tool_calls,
+        "tools": sorted(SCHEMA_NAMES),
+    }
+
+
+@app.post("/api/agent")
+def agent_ask(body: AgentAsk):
+    return get_agent().run(body.question).to_dict()
+
+
+@app.get("/api/agent/stream")
+def agent_stream(q: str):
+    """SSE：每步推一个事件（thought / tool_call / observation），最后 final。"""
+
+    def gen():
+        import queue as _q
+        import threading
+
+        box: _q.Queue = _q.Queue()
+        out: dict = {}
+
+        def worker():
+            try:
+                out["result"] = get_agent().run(q, on_event=lambda s: box.put(s))
+            except Exception as exc:
+                out["error"] = str(exc)
+            finally:
+                box.put(None)
+
+        threading.Thread(target=worker, daemon=True).start()
+        while True:
+            step = box.get()
+            if step is None:
+                break
+            payload = {"stage": "agent_step", "step": step.to_dict()}
+            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+        if "result" in out:
+            payload = {"stage": "final", **out["result"].to_dict()}
+            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+        elif "error" in out:
+            payload = {"stage": "error", "message": out["error"]}
+            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(

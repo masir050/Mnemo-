@@ -44,6 +44,15 @@ def pick_port(want: int) -> int:
     return want
 
 
+def _agent_line() -> str:
+    from .config import Settings
+
+    s = Settings()
+    if s.llm_base_url and s.llm_api_key:
+        return f"已就绪（{s.llm_model} @ {s.llm_base_url}）"
+    return "未配置（流水线照常可用；配 .env 后启用）"
+
+
 def ensure_data(py: str) -> bool:
     if DB.exists():
         return True
@@ -79,6 +88,7 @@ def serve(host: str = "127.0.0.1", port: int | None = None, open_browser: bool =
     say("")
     say(f"  Mnemo 记忆面板   {url}")
     say(f"  接口文档         {url}docs")
+    say(f"  Agent 模式       {_agent_line()}")
     say("  停服务：控制台按 Ctrl+C，或点 IDE 的红色方块停止键")
     say("")
 
