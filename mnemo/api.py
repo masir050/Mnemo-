@@ -1,0 +1,334 @@
+"""HTTP 接口 + SSE 流式回传。
+
+SSE 这件事在本项目里不是为了好看：检索、打分、消解、组装每一步都可能出问题，
+把这些中间结果实时吐出来，用户才能判断「这条答案是检索错了，还是抽错了，还是被预算裁掉了」。
+"""
+from __future__ import annotations
+
+import json
+import os
+import uuid
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import FileResponse, StreamingResponse
+from pydantic import BaseModel, Field
+
+from .config import DEFAULT_SETTINGS
+from .db import DEFAULT_DB
+from .extract.pipeline import ExtractorPipeline
+from .feedback import FeedbackLoop
+from .graph_app import GRAPH_BACKEND, MnemoRunner
+from .models import Message, now_iso
+from .retrieve import parse_query, retrieve
+from .store import Store
+from .tokens import memory_tokens
+
+WEB_DIR = Path(__file__).resolve().parent / "web"
+
+app = FastAPI(title="Mnemo", version="0.1.0")
+
+_store: Store | None = None
+_runner: MnemoRunner | None = None
+_feedback: FeedbackLoop | None = None
+_pipeline: ExtractorPipeline | None = None
+
+
+def get_store() -> Store:
+    global _store, _runner, _feedback
+    if _store is None:
+        db_path = os.environ.get("MNEMO_DB", str(DEFAULT_DB))
+        _store = Store(db_path, DEFAULT_SETTINGS)
+        _runner = MnemoRunner(_store)
+        _feedback = FeedbackLoop(_store)
+    return _store
+
+
+def get_pipeline() -> ExtractorPipeline:
+    global _pipeline
+    get_store()
+    if _pipeline is None:
+        assert _store is not None
+        _pipeline = ExtractorPipeline(_store)
+    return _pipeline
+
+
+def get_runner() -> MnemoRunner:
+    get_store()
+    assert _runner is not None
+    return _runner
+
+
+def get_feedback() -> FeedbackLoop:
+    get_store()
+    assert _feedback is not None
+    return _feedback
+
+
+# --------------------------------------------------------------------------- 模型
+class CorrectIn(BaseModel):
+    assertion_id: str
+    action: str = Field(pattern="^(correct|reject|confirm)$")
+    new_value: str = ""
+    operator: str = "panel"
+
+
+class RuleIn(BaseModel):
+    pattern: str
+    predicate: str
+    operator: str = "panel"
+
+
+class ToggleIn(BaseModel):
+    active: bool
+
+
+class IngestIn(BaseModel):
+    """灌一条原始消息。纠错闭环要能「改完再抽一遍」，所以入口必须留出来。"""
+    text: str
+    speaker: str = "panel"
+    channel: str = "im"
+    ts: str = ""
+    thread: str = ""
+    id: str = ""
+
+
+# --------------------------------------------------------------------------- 基础
+@app.get("/api/health")
+def health():
+    store = get_store()
+    return {"ok": True, "backend": GRAPH_BACKEND, "db": str(store.conn.execute("PRAGMA database_list").fetchone()[2])}
+
+
+@app.get("/api/stats")
+def stats():
+    store = get_store()
+    data = store.stats()
+    data["backend"] = GRAPH_BACKEND
+    data["token_budget"] = DEFAULT_SETTINGS.token_budget
+    return data
+
+
+@app.get("/api/entities")
+def entities():
+    store = get_store()
+    out = []
+    for ent in store.all_entities():
+        rows = store.conn.execute(
+            "SELECT predicate, value, confidence, status FROM assertion "
+            "WHERE entity_id = ? AND status IN ('active','disputed') ORDER BY predicate",
+            (ent.id,),
+        ).fetchall()
+        out.append(
+            {
+                "id": ent.id,
+                "name": ent.name,
+                "type": ent.type,
+                "aliases": ent.aliases,
+                "facts": [
+                    {"predicate": r["predicate"], "value": r["value"],
+                     "confidence": round(r["confidence"], 2), "status": r["status"]}
+                    for r in rows
+                ],
+            }
+        )
+    return out
+
+
+@app.get("/api/assertions")
+def assertions(
+    entity: str | None = None,
+    status: str | None = None,
+    predicate: str | None = None,
+    limit: int = Query(200, le=1000),
+):
+    store = get_store()
+    sql = "SELECT * FROM assertion WHERE 1=1"
+    args: list = []
+    if entity:
+        sql += " AND entity_name = ?"
+        args.append(entity)
+    if status:
+        sql += " AND status = ?"
+        args.append(status)
+    if predicate:
+        sql += " AND predicate = ?"
+        args.append(predicate)
+    sql += " ORDER BY entity_name, predicate, COALESCE(valid_from, created_at) DESC LIMIT ?"
+    args.append(limit)
+    rows = store.conn.execute(sql, tuple(args)).fetchall()
+    return [
+        {
+            "id": r["id"],
+            "entity": r["entity_name"],
+            "predicate": r["predicate"],
+            "value": r["value"],
+            "status": r["status"],
+            "confidence": round(r["confidence"], 3),
+            "valid_from": r["valid_from"],
+            "valid_to": r["valid_to"],
+            "source_kind": r["source_kind"],
+            "source_message_id": r["source_message_id"],
+            "source_quote": r["source_quote"],
+            "extractor": r["extractor"],
+            "pinned": bool(r["pinned"]),
+            "is_change": bool(r["is_change"]),
+            "note": r["note"],
+            "tokens": round(memory_tokens(store.get_assertion(r["id"])), 1),
+        }
+        for r in rows
+    ]
+
+
+@app.get("/api/chain/{assertion_id}")
+def chain(assertion_id: str):
+    store = get_store()
+    a = store.get_assertion(assertion_id)
+    if a is None:
+        raise HTTPException(404, "assertion not found")
+    return {
+        "slot": a.slot,
+        "versions": [
+            {
+                "id": x.id, "value": x.value, "status": x.status,
+                "confidence": round(x.confidence, 3),
+                "valid_from": x.valid_from, "valid_to": x.valid_to,
+                "source": f"{x.source_kind}:{x.source_message_id}",
+                "extractor": x.extractor, "pinned": x.pinned, "note": x.note,
+            }
+            for x in store.chain(a.slot)
+        ],
+    }
+
+
+@app.get("/api/messages/{message_id}")
+def message(message_id: str):
+    store = get_store()
+    m = store.get_message(message_id)
+    if m is None:
+        raise HTTPException(404, "message not found")
+    return {
+        "id": m.id, "channel": m.channel, "speaker": m.speaker,
+        "ts": m.ts, "text": m.text, "thread": m.thread,
+        "assertions": [
+            {"id": a.id, "predicate": a.predicate, "value": a.value, "status": a.status}
+            for a in store.message_assertions(m.id)
+        ],
+    }
+
+
+# --------------------------------------------------------------------------- 检索/问答
+@app.get("/api/ask")
+def ask(q: str):
+    return get_runner().run(q).as_dict()
+
+
+@app.get("/api/ask/stream")
+def ask_stream(q: str):
+    """SSE：每个节点一组事件，最后一条是 final。"""
+
+    def gen():
+        try:
+            for ev in get_runner().stream(q):
+                yield f"data: {ev.to_json()}\n\n"
+        except Exception as exc:  # 前端要能看到失败原因，不能静默断流
+            payload = json.dumps({"stage": "error", "message": str(exc)}, ensure_ascii=False)
+            yield f"data: {payload}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.get("/api/trace")
+def trace(q: str, limit: int = 8):
+    """只做检索，不生成回答。用于面板里的「为什么召回这些」。"""
+    store = get_store()
+    parsed = parse_query(store, q)
+    cands = retrieve(store, parsed)
+    return {
+        "parsed": parsed.as_dict(),
+        "candidates": [
+            {
+                "id": c.assertion.id, "entity": c.assertion.entity_name,
+                "predicate": c.assertion.predicate, "value": c.assertion.value,
+                "matched_terms": c.matched_terms[:8], "hop": c.hop,
+                **c.breakdown,
+            }
+            for c in cands[: limit * 4]
+        ],
+    }
+
+
+# --------------------------------------------------------------------------- 纠错
+@app.post("/api/ingest")
+def ingest(body: IngestIn):
+    if not body.text.strip():
+        raise HTTPException(400, "text 不能为空")
+    msg = Message(
+        id=body.id or f"m_{uuid.uuid4().hex[:10]}",
+        channel=body.channel, speaker=body.speaker,
+        ts=body.ts or now_iso(), text=body.text.strip(), thread=body.thread,
+    )
+    res = get_pipeline().ingest(msg)
+    return res.as_dict()
+
+
+@app.post("/api/corrections")
+def correct(body: CorrectIn):
+    fb = get_feedback()
+    try:
+        if body.action == "correct":
+            out = fb.correct(body.assertion_id, body.new_value, body.operator)
+        elif body.action == "reject":
+            out = fb.reject(body.assertion_id, body.new_value, body.operator)
+        else:
+            out = fb.confirm(body.assertion_id, body.operator)
+    except KeyError as exc:
+        raise HTTPException(404, str(exc))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    # 改完立刻让抽取器用上新规则，不等重启
+    get_pipeline().refresh_rules()
+    return out.as_dict()
+
+
+@app.get("/api/rules")
+def rules():
+    return get_feedback().list_rules()
+
+
+@app.post("/api/rules")
+def add_rule(body: RuleIn):
+    fb = get_feedback()
+    try:
+        rid = fb.add_pattern_rule(body.pattern, body.predicate, body.operator)
+    except Exception as exc:
+        raise HTTPException(400, f"正则不可用：{exc}")
+    get_pipeline().refresh_rules()
+    return {"id": rid}
+
+
+@app.post("/api/rules/{rule_id}/toggle")
+def toggle_rule(rule_id: str, body: ToggleIn):
+    get_feedback().toggle_rule(rule_id, body.active)
+    get_pipeline().refresh_rules()
+    return {"ok": True}
+
+
+@app.get("/api/rejected")
+def rejected(limit: int = 50):
+    store = get_store()
+    rows = store.conn.execute(
+        "SELECT * FROM rejected ORDER BY ts DESC LIMIT ?", (limit,)
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# --------------------------------------------------------------------------- 静态
+@app.get("/")
+def index():
+    return FileResponse(WEB_DIR / "index.html")

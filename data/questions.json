@@ -1,0 +1,17 @@
+[
+  {"q": "支付网关现在谁负责？", "entity": "支付网关", "predicate": "owner", "expect": "李强"},
+  {"q": "支付网关的截止时间是什么时候？", "entity": "支付网关", "predicate": "deadline", "expect": "2026-11-25"},
+  {"q": "支付网关的备份是谁？", "entity": "支付网关", "predicate": "backup", "expect": "李强"},
+  {"q": "支付网关部署在哪个环境？", "entity": "支付网关", "predicate": "system", "expect": "gw.internal.prod"},
+  {"q": "结算平台的负责人是谁？", "entity": "结算平台", "predicate": "owner", "expect": "陈磊"},
+  {"q": "结算平台的截止时间是几号？", "entity": "结算平台", "predicate": "deadline", "expect": "2026-11-18"},
+  {"q": "结算平台现在什么状态？", "entity": "结算平台", "predicate": "status", "expect": "上线待审批"},
+  {"q": "对账任务怎么跑？", "entity": "对账任务", "predicate": "procedure", "expect": "先跑precheck脚本"},
+  {"q": "对账任务的排期是几点？", "entity": "对账任务", "predicate": "schedule", "expect": "每周二凌晨两点"},
+  {"q": "对账任务有什么风险？", "entity": "对账任务", "predicate": "risk", "expect": "上次跑挂了没人知道"},
+  {"q": "客户数据平台的负责人是谁？", "entity": "客户数据平台", "predicate": "owner", "expect": "王敏"},
+  {"q": "客户数据平台什么时候交付？", "entity": "客户数据平台", "predicate": "deadline", "expect": "2026-12-20"},
+  {"q": "数据治理专项谁负责？", "entity": "数据治理专项", "predicate": "owner", "expect": "赵敏"},
+  {"q": "数据治理专项的值班怎么排？", "entity": "数据治理专项", "predicate": "schedule", "expect": "周四上午"},
+  {"q": "交接手册在哪里？", "entity": "交接手册", "predicate": "system", "expect": "wiki 上的 data-handover 空间"}
+]

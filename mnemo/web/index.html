@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mnemo · 记忆面板</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --ink: #1a1d23;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+    --accent: #2f5cff;
+    --accent-soft: #eef2ff;
+    --green: #15803d;
+    --amber: #b45309;
+    --red: #b91c1c;
+    --gray: #9aa3af;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 16px;
+    padding: 14px 24px; background: var(--panel); border-bottom: 1px solid var(--line);
+    position: sticky; top: 0; z-index: 10;
+  }
+  header h1 { font-size: 16px; margin: 0; letter-spacing: .3px; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  .badges { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+  .badge {
+    font-size: 12px; padding: 2px 8px; border-radius: 999px;
+    background: #f3f4f6; color: var(--muted); border: 1px solid var(--line);
+  }
+  .badge b { color: var(--ink); font-weight: 600; }
+  main {
+    display: grid; grid-template-columns: minmax(340px, 0.9fr) 1.4fr;
+    gap: 18px; padding: 18px 24px 48px; align-items: start;
+  }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  .panel {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    overflow: hidden;
+  }
+  .panel-h {
+    padding: 10px 14px; border-bottom: 1px solid var(--line);
+    font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .panel-b { padding: 14px; }
+
+  /* 提问 */
+  .ask-row { display: flex; gap: 8px; }
+  input[type=text], textarea {
+    width: 100%; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px;
+    font: inherit; color: var(--ink); background: #fff; outline: none;
+  }
+  input[type=text]:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  button {
+    font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line);
+    background: #fff; color: var(--ink); cursor: pointer; white-space: nowrap;
+  }
+  button:hover { border-color: #cbd5e1; background: #fafafa; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { background: #2449d8; }
+  button.tiny { padding: 3px 8px; font-size: 12px; border-radius: 6px; }
+  button.danger { color: var(--red); }
+  .samples { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .samples button { font-size: 12px; padding: 4px 9px; color: var(--muted); }
+
+  /* 流式过程 */
+  .stream {
+    margin-top: 14px; font-family: var(--mono); font-size: 12px;
+    background: #fbfcfd; border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px; max-height: 300px; overflow: auto; display: none;
+  }
+  .stream.on { display: block; }
+  .ev { padding: 3px 0; border-bottom: 1px dashed #f0f1f3; }
+  .ev:last-child { border-bottom: 0; }
+  .ev .stage { display: inline-block; min-width: 62px; color: var(--accent); font-weight: 600; }
+  .ev .detail { color: var(--muted); word-break: break-all; }
+  .ev.err .stage { color: var(--red); }
+
+  .answer {
+    margin-top: 14px; padding: 12px 14px; border-radius: 8px;
+    background: var(--accent-soft); border: 1px solid #dfe6ff; white-space: pre-wrap;
+    display: none;
+  }
+  .answer.on { display: block; }
+  .cites { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+  .cite { font-size: 12px; color: var(--muted); }
+  .cite code { color: var(--ink); background: #eef1f6; padding: 1px 5px; border-radius: 4px; }
+
+  /* 记忆面板 */
+  .ent { border-bottom: 1px solid var(--line); }
+  .ent:last-child { border-bottom: 0; }
+  .ent-h {
+    display: flex; align-items: center; gap: 8px; padding: 10px 14px;
+    background: #fafbfc; cursor: pointer; user-select: none;
+  }
+  .ent-h:hover { background: #f4f6f9; }
+  .ent-h .name { font-weight: 600; }
+  .ent-h .type { font-size: 11px; color: var(--muted); background: #eef1f4; padding: 1px 6px; border-radius: 4px; }
+  .ent-h .count { margin-left: auto; font-size: 12px; color: var(--muted); }
+  .facts { padding: 4px 14px 12px; }
+  .fact {
+    display: grid; grid-template-columns: 92px 1fr auto; gap: 10px;
+    padding: 8px 0; border-bottom: 1px dashed #f0f1f3; align-items: start;
+  }
+  .fact:last-child { border-bottom: 0; }
+  .fact .pred { color: var(--muted); font-size: 13px; }
+  .fact .val { font-weight: 500; }
+  .fact .meta { font-size: 11px; color: var(--muted); margin-top: 2px; font-family: var(--mono); }
+  .fact .ops { display: flex; gap: 4px; opacity: 0; transition: opacity .12s; }
+  .fact:hover .ops { opacity: 1; }
+  .st { font-size: 11px; padding: 0 6px; border-radius: 4px; border: 1px solid; }
+  .st.active { color: var(--green); border-color: #bbf7d0; background: #f0fdf4; }
+  .st.disputed { color: var(--amber); border-color: #fde68a; background: #fffbeb; }
+  .st.superseded { color: var(--gray); border-color: #e5e7eb; background: #f9fafb; }
+  .st.expired { color: var(--red); border-color: #fecaca; background: #fef2f2; }
+  .chain { grid-column: 1 / -1; margin-top: 6px; font-size: 12px; color: var(--muted); }
+  .chain ol { margin: 4px 0 0; padding-left: 18px; }
+  .chain li { padding: 1px 0; }
+  .chain .q { color: #8b95a5; font-style: italic; }
+  .inline-edit { grid-column: 1 / -1; display: flex; gap: 6px; margin-top: 6px; }
+
+  /* 规则 */
+  .rule { display: flex; gap: 8px; align-items: flex-start; padding: 7px 0; border-bottom: 1px dashed #f0f1f3; font-size: 12px; }
+  .rule:last-child { border-bottom: 0; }
+  .rule code { font-family: var(--mono); color: #374151; background: #f3f4f6; padding: 1px 5px; border-radius: 4px; word-break: break-all; }
+  .rule .on { color: var(--green); }
+  .rule .off { color: var(--gray); }
+  .empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
+  .toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(8px);
+    background: #111827; color: #fff; padding: 9px 16px; border-radius: 8px; font-size: 13px;
+    opacity: 0; pointer-events: none; transition: all .18s; z-index: 99;
+  }
+  .toast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .tabs { display: flex; gap: 4px; margin-left: auto; }
+  .tabs button { padding: 3px 10px; font-size: 12px; border-radius: 6px; }
+  .tabs button.on { background: var(--accent-soft); border-color: #dfe6ff; color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Mnemo</h1>
+    <div class="sub">面向岗位交接的组织记忆系统 · 每条结论可回溯到原始消息</div>
+  </div>
+  <div class="badges" id="badges"></div>
+</header>
+
+<main>
+  <section>
+    <div class="panel">
+      <div class="panel-h">提问 · 检索过程实时回传</div>
+      <div class="panel-b">
+        <div class="ask-row">
+          <input id="q" type="text" placeholder="例如：支付网关现在谁负责？" />
+          <button class="primary" id="askBtn">提问</button>
+        </div>
+        <div class="samples" id="samples"></div>
+        <div class="stream" id="stream"></div>
+        <div class="answer" id="answer"></div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:18px">
+      <div class="panel-h">规则库 · 纠正样本回写</div>
+      <div class="panel-b" id="rules"></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-h">
+      记忆面板
+      <div class="tabs" id="tabs">
+        <button data-f="all" class="on">全部</button>
+        <button data-f="active">有效</button>
+        <button data-f="disputed">待确认</button>
+        <button data-f="superseded">已取代</button>
+      </div>
+    </div>
+    <div id="entities"></div>
+  </section>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const state = { filter: 'all', entities: [], open: new Set() };
+
+function toast(msg) {
+  const t = $('#toast');
+  t.textContent = msg; t.classList.add('on');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.remove('on'), 2200);
+}
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error((await r.text()) || r.status);
+  return r.json();
+}
+
+/* ---------------- 统计 ---------------- */
+async function loadStats() {
+  const s = await api('/api/stats');
+  $('#badges').innerHTML = [
+    ['实体', s.entities], ['消息', s.messages], ['断言', s.assertions],
+    ['有效', s.active], ['待确认', s.disputed], ['已取代', s.superseded],
+    ['规则', s.learned_rules],
+  ].map(([k, v]) => `<span class="badge">${k} <b>${v}</b></span>`).join('')
+    + `<span class="badge">编排 <b>${s.backend}</b></span>`;
+}
+
+/* ---------------- 记忆面板 ---------------- */
+const STATUS_CN = { active: '有效', disputed: '待确认', superseded: '已取代', expired: '已过期' };
+
+async function loadEntities() {
+  state.entities = await api('/api/entities');
+  renderEntities();
+}
+
+function renderEntities() {
+  const wrap = $('#entities');
+  const f = state.filter;
+  const blocks = [];
+  for (const ent of state.entities) {
+    const facts = ent.facts.filter(x => f === 'all' || x.status === f);
+    if (!facts.length) continue;
+    const open = state.open.has(ent.name) || f !== 'all';
+    const rows = facts.map(x => `
+      <div class="fact">
+        <div class="pred">${x.predicate}</div>
+        <div>
+          <div class="val">${escapeHtml(x.value)}</div>
+          <div class="meta">置信 ${x.confidence.toFixed(2)}</div>
+        </div>
+        <div class="ops">
+          <button class="tiny" onclick="fixFact('${ent.name}','${x.predicate}')">修正</button>
+        </div>
+      </div>`).join('');
+    blocks.push(`
+      <div class="ent">
+        <div class="ent-h" onclick="toggleEnt('${ent.name}')">
+          <span class="name">${escapeHtml(ent.name)}</span>
+          <span class="type">${ent.type}</span>
+          <span class="count">${facts.length} 条 ${open ? '▾' : '▸'}</span>
+        </div>
+        ${open ? `<div class="facts">${rows}</div>` : ''}
+      </div>`);
+  }
+  wrap.innerHTML = blocks.length ? blocks.join('') : '<div class="empty" style="padding:24px">该筛选下没有记忆</div>';
+}
+
+function toggleEnt(name) {
+  if (state.open.has(name)) state.open.delete(name); else state.open.add(name);
+  renderEntities();
+}
+
+async function loadChain(entity, predicate) {
+  const list = await api(`/api/assertions?entity=${encodeURIComponent(entity)}&predicate=${predicate}`);
+  return list;
+}
+
+async function fixFact(entity, predicate) {
+  const list = await loadChain(entity, predicate);
+  const cur = list.find(a => a.status === 'active' || a.status === 'disputed') || list[0];
+  if (!cur) return;
+
+  const detail = list.map(a =>
+    `[${STATUS_CN[a.status]}] ${a.value}  置信 ${a.confidence}  来源 ${a.source_kind}:${a.source_message_id}\n    原文：${a.source_quote || '（无）'}`
+  ).join('\n');
+
+  const action = prompt(
+    `${entity} 的 ${predicate}，当前版本链：\n\n${detail}\n\n` +
+    `输入新的值后回车 = 修正为输入值；输入 ! 表示标记为误抽；直接回车 = 确认现值。`,
+    cur.value
+  );
+  if (action === null) return;
+
+  let body;
+  if (action.trim() === '!') {
+    body = { assertion_id: cur.id, action: 'reject', new_value: '人工判定误抽' };
+  } else if (action.trim() === '' || action.trim() === cur.value) {
+    body = { assertion_id: cur.id, action: 'confirm' };
+  } else {
+    body = { assertion_id: cur.id, action: 'correct', new_value: action.trim() };
+  }
+
+  const out = await api('/api/corrections', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  toast(out.messages.join('；') || '已处理');
+  await Promise.all([loadStats(), loadEntities(), loadRules()]);
+}
+
+/* ---------------- 规则 ---------------- */
+async function loadRules() {
+  const rules = await api('/api/rules');
+  const box = $('#rules');
+  if (!rules.length) {
+    box.innerHTML = '<div class="empty">还没有学到规则。在记忆面板里修正一次错误，这里就会出现回写的规则与负例约束。</div>';
+    return;
+  }
+  box.innerHTML = rules.map(r => `
+    <div class="rule">
+      <span class="${r.active ? 'on' : 'off'}">●</span>
+      <div style="flex:1">
+        <div><b>${r.predicate}</b> · <span style="color:#6b7280">${r.origin}</span>
+             <span style="color:#9aa3af">hit ${r.hits}</span></div>
+        <code>${escapeHtml(r.pattern)}</code>
+      </div>
+      <button class="tiny" onclick="toggleRule('${r.id}', ${!r.active})">${r.active ? '停用' : '启用'}</button>
+    </div>`).join('');
+}
+
+async function toggleRule(id, active) {
+  await api(`/api/rules/${id}/toggle`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active }),
+  });
+  loadRules();
+}
+
+/* ---------------- 提问 ---------------- */
+const SAMPLES = [
+  '支付网关现在谁负责？',
+  '结算平台的截止时间是几号？',
+  '对账任务怎么跑？',
+  '数据治理专项有什么风险？',
+];
+
+function renderSamples() {
+  $('#samples').innerHTML = SAMPLES.map(s => `<button onclick="ask('${s}')">${s}</button>`).join('');
+}
+
+function ask(text) {
+  const q = text || $('#q').value.trim();
+  if (!q) return;
+  $('#q').value = q;
+  const stream = $('#stream');
+  const answer = $('#answer');
+  stream.className = 'stream on';
+  stream.innerHTML = '';
+  answer.className = 'answer';
+  answer.textContent = '';
+  $('#askBtn').disabled = true;
+
+  const es = new EventSource('/api/ask/stream?q=' + encodeURIComponent(q));
+  let facts = [];
+
+  es.onmessage = (e) => {
+    if (e.data === '[DONE]') { es.close(); $('#askBtn').disabled = false; return; }
+    let ev;
+    try { ev = JSON.parse(e.data); } catch { return; }
+
+    if (ev.stage === 'final') {
+      es.close();
+      $('#askBtn').disabled = false;
+      answer.className = 'answer on';
+      answer.innerHTML = escapeHtml(ev.answer).replace(/\n/g, '<br>')
+        + (ev.citations && ev.citations.length
+          ? '<div class="cites">' + ev.citations.map(c =>
+              `<div class="cite">↳ <code>${c.source}</code> ${escapeHtml(c.source_quote || '')}</div>`).join('') + '</div>'
+          : '');
+      return;
+    }
+
+    const el = document.createElement('div');
+    el.className = 'ev' + (ev.stage === 'error' ? ' err' : '');
+    el.innerHTML = `<span class="stage">${ev.stage}</span><span class="detail">${escapeHtml(summarize(ev))}</span>`;
+    stream.appendChild(el);
+    stream.scrollTop = stream.scrollHeight;
+  };
+
+  es.onerror = () => { es.close(); $('#askBtn').disabled = false; };
+}
+
+function summarize(ev) {
+  const skip = new Set(['stage', 'ts']);
+  const parts = [];
+  for (const [k, v] of Object.entries(ev)) {
+    if (skip.has(k)) continue;
+    if (Array.isArray(v)) {
+      if (k === 'top') {
+        parts.push('top: ' + v.slice(0, 3).map(t => `${t.entity}.${t.predicate}=${t.value}(${t.score})`).join(' | '));
+      } else if (k === 'conflicts') {
+        parts.push(v.length ? `冲突 ${v.length} 处` : '无冲突');
+      } else {
+        parts.push(`${k}: ${v.length} 项`);
+      }
+    } else if (typeof v === 'object' && v !== null) {
+      parts.push(`${k}: ${Object.entries(v).map(([a, b]) => `${a}=${b}`).join(', ')}`);
+    } else {
+      parts.push(`${k}=${v}`);
+    }
+  }
+  return parts.join('  ');
+}
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+
+/* ---------------- 启动 ---------------- */
+$('#askBtn').onclick = () => ask();
+$('#q').addEventListener('keydown', e => { if (e.key === 'Enter') ask(); });
+$('#tabs').addEventListener('click', e => {
+  if (e.target.tagName !== 'BUTTON') return;
+  $('#tabs').querySelectorAll('button').forEach(b => b.classList.remove('on'));
+  e.target.classList.add('on');
+  state.filter = e.target.dataset.f;
+  renderEntities();
+});
+
+(async function init() {
+  renderSamples();
+  try {
+    await Promise.all([loadStats(), loadEntities(), loadRules()]);
+  } catch (err) {
+    toast('加载失败：' + err.message);
+  }
+})();
+</script>
+</body>
+</html>

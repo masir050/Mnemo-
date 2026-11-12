@@ -1,0 +1,9 @@
+# 运行产物，不入库
+data/*.db
+data/*.db-wal
+data/*.db-shm
+
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
