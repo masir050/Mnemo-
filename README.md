@@ -57,7 +57,7 @@ python scripts\bootstrap.py
 > PowerShell 里**不要整段粘贴**：多行会被拼成一条命令（提示符变成 `>>` 就是被续行了），
 > 于是 `pip install` 被当成 `uvicorn` 的参数，第一步就崩。
 
-第 1 步，建虚拟环境（只做一次）：
+第 1 步，进目录并建虚拟环境（只做一次）：
 
 ```powershell
 cd D:\coding\python\mnemo
@@ -90,7 +90,7 @@ python -m venv .venv
 | 报错 | 原因 | 处理 |
 |---|---|---|
 | `ModuleNotFoundError: No module named 'fastapi'` | 用的是系统 Python，依赖装到别处了 | 第 2/3/4 步都改用 `.\.venv\Scripts\python.exe`；或直接 `run.bat` |
-| `UnicodeDecodeError: 'gbk' codec can't decode byte 0xa1` | 旧版 `requirements.txt` 带中文注释，pip 按 GBK 解码 | 已改纯 ASCII，`git pull` 后重试 |
+| `UnicodeDecodeError: 'gbk' codec can't decode byte 0xa1` | 旧版 `requirements.txt` 带中文注释，pip 按 GBK 解码 | 已改纯 ASCII，本地已是新版；从 Git 拉旧版的话 `git pull` 即可 |
 | `[Errno 10048]` / 端口被占 | 上次的服务没关干净 | 换端口 `--port 8741`，或 `run.bat`（会自动顺延） |
 | `Address already in use` 后窗口闪退 | 同上 | 同上 |
 
