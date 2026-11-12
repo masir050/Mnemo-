@@ -1,10 +1,11 @@
-# 运行期依赖。三个库起步，其余都是标准库 + sqlite。
-# 小模型兜底走 OpenAI 兼容接口时才会用到 httpx，已由 fastapi 间接带上。
+# Runtime deps. This file must stay ASCII-only:
+# pip decodes requirement files with the OS locale (cp936 / GBK on Chinese Windows),
+# so a single non-ASCII byte in a comment aborts the install with UnicodeDecodeError.
 langgraph>=0.2
 fastapi>=0.110
 uvicorn>=0.27
 pydantic>=2.5
 
-# 开发/验证
+# dev / verification
 pytest>=8
 httpx>=0.27

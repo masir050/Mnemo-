@@ -44,23 +44,60 @@ parse ──▶ retrieve ──▶(召回不足)──▶ widen ──┐
 
 ### 2. 命令行
 
-```bash
-pip install -r requirements.txt
-python scripts/seed.py                       # 灌演示语料（重复执行会重建库）
-python -m uvicorn mnemo.api:app --port 8731  # 起服务，浏览器打开 127.0.0.1:8731
+**不想手动折腾就用这个**（等价于双击 run.bat）：
+
+```powershell
+python scripts\bootstrap.py
 ```
 
-上面这三行等价于 `python scripts/bootstrap.py`（它会自己建 `.venv`、装依赖、灌数据、挑端口、开浏览器）。
-起不来时先跑环境自检，它会把原因说清楚：
+排错时用 `python scripts\bootstrap.py --check`：只检查环境不起服务，缺什么、错在哪会直接打出来。
 
-```bash
-python scripts/bootstrap.py --check
+#### 手动分步（一行一行执行）
+
+> PowerShell 里**不要整段粘贴**：多行会被拼成一条命令（提示符变成 `>>` 就是被续行了），
+> 于是 `pip install` 被当成 `uvicorn` 的参数，第一步就崩。
+
+第 1 步，建虚拟环境（只做一次）：
+
+```powershell
+cd D:\coding\python\mnemo
 ```
+
+```powershell
+python -m venv .venv
+```
+
+第 2 步，装依赖 —— 注意用 `.venv` 里的 python，别用系统的 `python`：
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+第 3 步，灌演示语料（重复执行会重建库）：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\seed.py
+```
+
+第 4 步，起服务：
+
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn mnemo.api:app --port 8731
+```
+
+#### 起不来时对照这张表
+
+| 报错 | 原因 | 处理 |
+|---|---|---|
+| `ModuleNotFoundError: No module named 'fastapi'` | 用的是系统 Python，依赖装到别处了 | 第 2/3/4 步都改用 `.\.venv\Scripts\python.exe`；或直接 `run.bat` |
+| `UnicodeDecodeError: 'gbk' codec can't decode byte 0xa1` | 旧版 `requirements.txt` 带中文注释，pip 按 GBK 解码 | 已改纯 ASCII，`git pull` 后重试 |
+| `[Errno 10048]` / 端口被占 | 上次的服务没关干净 | 换端口 `--port 8741`，或 `run.bat`（会自动顺延） |
+| `Address already in use` 后窗口闪退 | 同上 | 同上 |
 
 不想开网页，终端里看完整闭环（问 → 答 → 纠错 → 再问）：
 
-```bash
-python scripts/demo.py
+```powershell
+.\.venv\Scripts\python.exe scripts\demo.py
 ```
 
 ### 3. 在面板里做什么
@@ -101,10 +138,14 @@ python scripts/demo.py
 
 ### 6. 验证与评测
 
-```bash
-python -m pytest tests -q                 # 66 个用例：存储 / 抽取 / 组装 / 纠错闭环 / 编排
-python scripts/eval_context_cost.py       # 上下文注入成本：平均 8.7%（对比全量拼接）
-python scripts/eval_convergence.py        # 纠错收敛：冲突 3 → 0，待确认 2 题 → 0 题
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests -q        # 66 个用例：存储 / 抽取 / 组装 / 纠错闭环 / 编排
+```
+```powershell
+.\.venv\Scripts\python.exe scripts\eval_context_cost.py   # 注入成本：平均 8.7%（对比全量拼接）
+```
+```powershell
+.\.venv\Scripts\python.exe scripts\eval_convergence.py    # 纠错收敛：冲突 3 → 0，待确认 2 → 0
 ```
 
 ---
