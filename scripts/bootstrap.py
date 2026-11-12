@@ -104,20 +104,18 @@ def main() -> int:
     # ---- 2. 依赖：真的 import 一遍，不通过就重装 ----------------------------
     ok, err = probe(py)
     if not ok:
-        say("[*] 依赖自检没过，重装一遍（首次运行，或 .venv 被别的 Python 装坏了，都会走到这里）...")
+        say("[*] 依赖自检没过，重装...")
         pip_install(py, force=True)
         ok, err = probe(py)
     if not ok:
         say("")
-        say("[x] 依赖装不上。先看自己属于哪种：")
+        say("[x] 依赖装不上：")
         if ABI_HINTS.search(err):
-            say("    .venv 里混进了别的 Python 版本的编译包（例如 cp313 的轮子装进 cp312 环境），")
-            say("    这种混装没法就地修：把 .venv 整个删掉，再跑一次本脚本。")
+            say("    .venv 与解释器版本不一致。删掉 .venv 目录，重跑 run.bat")
         else:
-            say("    依赖根本没装上，手动执行下面这行看具体报错：")
-            say(f'    "{py}" -m pip install -r "{REQUIREMENTS}" -i {MIRROR}')
+            say(f'    手动装："{py}" -m pip install -r "{REQUIREMENTS}" -i {MIRROR}')
         say("")
-        say("    ---- 最后一次导入报错 ----")
+        say("    ---- 导入报错 ----")
         say(err or "(无输出)")
         return 1
     say("[*] 依赖就绪")

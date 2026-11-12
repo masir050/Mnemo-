@@ -144,7 +144,7 @@ def compose_answer(query: str, facts: list[ResolvedFact], entities: list[str] | 
     """
     live = [f for f in facts if f.current]
     if not live:
-        return "没有检索到相关记忆。可能还没人记录过，或换个说法试试。", []
+        return "没有检索到相关记忆。", []
 
     # 问的是「结算平台」，就别让「客户数据平台」的内容插到正文中间
     if entities:
@@ -183,7 +183,7 @@ def compose_answer(query: str, facts: list[ResolvedFact], entities: list[str] | 
         )
 
     if weak:
-        lines.append(f"（另有 {len(weak)} 条低置信记录待确认，可在记忆面板复核）")
+        lines.append(f"（另有 {len(weak)} 条低置信记录待确认）")
     if len(solid) > 6:
         lines.append(f"（另有 {len(solid) - 6} 条相关记忆未展开）")
     return "\n".join(lines), citations

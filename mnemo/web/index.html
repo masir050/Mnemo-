@@ -150,7 +150,7 @@
 <header>
   <div>
     <h1>Mnemo</h1>
-    <div class="sub">面向岗位交接的组织记忆系统 · 每条结论可回溯到原始消息</div>
+    <div class="sub">面向岗位交接的组织记忆系统</div>
   </div>
   <div class="badges" id="badges"></div>
 </header>
@@ -158,7 +158,7 @@
 <main>
   <section>
     <div class="panel">
-      <div class="panel-h">提问 · 检索过程实时回传</div>
+      <div class="panel-h">提问</div>
       <div class="panel-b">
         <div class="ask-row">
           <input id="q" type="text" placeholder="例如：支付网关现在谁负责？" />
@@ -171,7 +171,7 @@
     </div>
 
     <div class="panel" style="margin-top:18px">
-      <div class="panel-h">规则库 · 纠正样本回写</div>
+      <div class="panel-h">规则库</div>
       <div class="panel-b" id="rules"></div>
     </div>
   </section>
@@ -257,7 +257,7 @@ function renderEntities() {
         ${open ? `<div class="facts">${rows}</div>` : ''}
       </div>`);
   }
-  wrap.innerHTML = blocks.length ? blocks.join('') : '<div class="empty" style="padding:24px">该筛选下没有记忆</div>';
+  wrap.innerHTML = blocks.length ? blocks.join('') : '<div class="empty" style="padding:24px">暂无记录</div>';
 }
 
 function toggleEnt(name) {
@@ -280,8 +280,7 @@ async function fixFact(entity, predicate) {
   ).join('\n');
 
   const action = prompt(
-    `${entity} 的 ${predicate}，当前版本链：\n\n${detail}\n\n` +
-    `输入新的值后回车 = 修正为输入值；输入 ! 表示标记为误抽；直接回车 = 确认现值。`,
+    `${entity} · ${predicate}\n\n${detail}\n\n输入新值 = 修正；! = 误抽；回车 = 确认现值`,
     cur.value
   );
   if (action === null) return;
@@ -298,7 +297,7 @@ async function fixFact(entity, predicate) {
   const out = await api('/api/corrections', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   });
-  toast(out.messages.join('；') || '已处理');
+  toast(out.messages[0] || '已处理');
   await Promise.all([loadStats(), loadEntities(), loadRules()]);
 }
 
@@ -307,7 +306,7 @@ async function loadRules() {
   const rules = await api('/api/rules');
   const box = $('#rules');
   if (!rules.length) {
-    box.innerHTML = '<div class="empty">还没有学到规则。在记忆面板里修正一次错误，这里就会出现回写的规则与负例约束。</div>';
+    box.innerHTML = '<div class="empty">暂无规则</div>';
     return;
   }
   box.innerHTML = rules.map(r => `
