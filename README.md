@@ -37,7 +37,10 @@ parse ──▶ retrieve ──▶(召回不足)──▶ widen ──┐
 首次运行会自动装依赖、灌 78 条演示语料（群聊 / 工单 / 周报混排），然后起服务并打开面板
 `http://127.0.0.1:8731`。关掉窗口即停止服务。
 
-需要 Python 3.10+；用的是项目内 `.venv` 或 PATH 里的 `python`，也可以用环境变量 `MNEMO_PYTHON` 指定解释器。
+它做三件事：建项目内虚拟环境 `.venv`、按 `import` 结果装依赖（缺什么装什么，默认源失败自动换清华镜像）、
+没有数据就灌演示语料。端口被占（比如上次没关干净）会自动顺延到 8732、8733……
+
+前提只有一个：装好 Python 3.10+。PATH 里没有 `python` 的话，用环境变量 `MNEMO_PYTHON` 指到 `python.exe` 全路径。
 
 ### 2. 命令行
 
@@ -45,6 +48,13 @@ parse ──▶ retrieve ──▶(召回不足)──▶ widen ──┐
 pip install -r requirements.txt
 python scripts/seed.py                       # 灌演示语料（重复执行会重建库）
 python -m uvicorn mnemo.api:app --port 8731  # 起服务，浏览器打开 127.0.0.1:8731
+```
+
+上面这三行等价于 `python scripts/bootstrap.py`（它会自己建 `.venv`、装依赖、灌数据、挑端口、开浏览器）。
+起不来时先跑环境自检，它会把原因说清楚：
+
+```bash
+python scripts/bootstrap.py --check
 ```
 
 不想开网页，终端里看完整闭环（问 → 答 → 纠错 → 再问）：
@@ -115,7 +125,7 @@ mnemo/
 ├── feedback.py    纠正 → 负例 → 泛化规则
 ├── api.py         HTTP + SSE
 └── web/index.html 记忆面板（无构建、无前端框架）
-scripts/  seed.py · demo.py · eval_context_cost.py · eval_convergence.py
+scripts/  bootstrap.py（一键启动）· seed.py · demo.py · eval_context_cost.py · eval_convergence.py
 data/     corpus.jsonl（演示语料）· questions.json（金标准）
 tests/    66 个用例
 ```
