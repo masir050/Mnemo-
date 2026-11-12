@@ -1,8 +1,4 @@
-"""终端演示：一遍看清「现值 / 轨迹 / 冲突 / 纠错闭环」。
-
-用临时副本跑，不动 data/mnemo.db，所以可以反复执行。
-    python scripts/demo.py
-"""
+"""终端演示：现值 / 轨迹 / 冲突 / 纠错闭环。用临时库副本，可反复跑。"""
 from __future__ import annotations
 
 import shutil
@@ -43,8 +39,7 @@ def main() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         db = Path(tmp) / "demo.db"
         shutil.copy(SRC_DB, db)
-        # WAL 里的内容可能还没落盘，复制主库后单独归档会导致读不到最新行；
-        # 这里直接把主库当基线（seed 脚本结束时已 checkpoint）。
+        # WAL 可能未落盘，直接复制主库（seed 结束时已 checkpoint）
         with Store(db, DEFAULT_SETTINGS) as store:
             runner = MnemoRunner(store)
             fb = FeedbackLoop(store)

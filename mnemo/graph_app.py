@@ -1,8 +1,4 @@
-"""LangGraph 编排：解析 -> 检索 ->（召回不足则放宽重检）-> 冲突消解 -> 组装 -> 成文。
-
-选 LangGraph 而不是一条直线函数，是为了把「召回不足时回到检索」这类分支写成显式边，
-而不是埋在 if 里；同时每个节点都是纯函数，便于单独测试和替换。
-"""
+"""LangGraph 编排：解析 -> 检索 ->（召回不足则放宽）-> 消解 -> 组装 -> 成文。"""
 from __future__ import annotations
 
 import json
@@ -19,7 +15,7 @@ from .runtime import Bus, get_bus, register_run, unregister_run
 from .store import Store
 from .tokens import estimate_tokens, memory_tokens
 
-try:  # 有 langgraph 就用真的，没有就用内置兼容层，行为一致
+try:  # 没有 langgraph 时走内置兼容层
     from langgraph.graph import END, START, StateGraph  # type: ignore
 
     GRAPH_BACKEND = "langgraph"
@@ -27,6 +23,25 @@ except Exception:  # pragma: no cover - 环境差异
     from .graph_compat import END, START, StateGraph  # type: ignore
 
     GRAPH_BACKEND = "compat"
+
+
+CHANNEL_CN = {
+    "im": "IM 群聊", "ticket": "工单", "weekly": "周报", "doc": "文档",
+    "manual": "人工确认", "llm": "模型抽取",
+}
+
+
+def _cite_label(store: Store, kind: str, message_id: str) -> str:
+    """来源展示成「IM 群聊 · 张伟 · 10/08」。"""
+    msg = store.get_message(message_id) if message_id else None
+    if msg is None:
+        return CHANNEL_CN.get(kind, kind)
+    bits = [CHANNEL_CN.get(msg.channel or kind, kind)]
+    if msg.speaker:
+        bits.append(msg.speaker)
+    if msg.ts:
+        bits.append(msg.ts[5:10].replace("-", "/"))
+    return " · ".join(bits)
 
 
 class MemState(TypedDict, total=False):
@@ -43,7 +58,7 @@ class MemState(TypedDict, total=False):
 
 
 def _emit(state: MemState, stage: str, **payload) -> None:
-    """节点内的唯一上报口。取不到 bus 就静默丢弃——观测不该影响主流程。"""
+    """节点内的唯一上报口；取不到 bus 就丢弃。"""
     bus = get_bus(state.get("run_id"))
     if bus is not None:
         bus.emit(stage, **payload)
@@ -129,6 +144,8 @@ def _node_compose(store: Store):
         facts: list[ResolvedFact] = state.get("facts") or []
         parsed = state.get("parsed") or {}
         answer, citations = compose_answer(state["query"], facts, parsed.get("entities"))
+        for c in citations:
+            c["source_label"] = _cite_label(store, c["source_kind"], c["source_message_id"])
         _emit(state, "compose", answer=answer, citations=len(citations))
         return {"answer": answer, "citations": citations}
     return run
@@ -136,17 +153,12 @@ def _node_compose(store: Store):
 
 # --------------------------------------------------------------------------- 成文
 def compose_answer(query: str, facts: list[ResolvedFact], entities: list[str] | None = None) -> tuple[str, list[dict]]:
-    """不调大模型也能给出可用回答：把消解后的结论按「现值 + 冲突 + 轨迹」组织。
-
-    这么做的原因：交接场景下用户要的是「现在是谁 / 什么时候到期 / 变过没有」，
-    结构化事实比一段生成文本更可信，也天然可回溯。
-    低置信（<0.5）的记忆不进正文，只报个数——它们该去面板里等人确认，而不是冒充结论。
-    """
+    """把消解后的结论组织成「现值 + 冲突 + 轨迹」；置信度 <0.5 的不进正文。"""
     live = [f for f in facts if f.current]
     if not live:
         return "没有检索到相关记忆。", []
 
-    # 问的是「结算平台」，就别让「客户数据平台」的内容插到正文中间
+    # 点名的实体排在前面
     if entities:
         live.sort(key=lambda f: (f.entity_name not in entities, -f.best_score))
 
@@ -178,6 +190,8 @@ def compose_answer(query: str, facts: list[ResolvedFact], entities: list[str] | 
                 "value": cur.value,
                 "confidence": round(fact.confidence, 2),
                 "source": f"{cur.source_kind}:{cur.source_message_id}",
+                "source_kind": cur.source_kind,
+                "source_message_id": cur.source_message_id,
                 "source_quote": cur.source_quote,
             }
         )
@@ -213,7 +227,7 @@ class RunResult:
 
 
 def _wire(g, store: Store, settings: Settings):
-    """把节点和边接到任意 StateGraph 实现上（真实 langgraph 或内置兼容层）。"""
+    """把节点和边接到 StateGraph 实现上。"""
     g.add_node("parse", _node_parse(store))
     g.add_node("retrieve", _node_retrieve(store, settings))
     g.add_node("widen", _node_widen(store))
@@ -263,7 +277,7 @@ class MnemoRunner:
 
     # ------------------------------------------------------------------ 流式
     def stream(self, query: str) -> Iterator[TraceEvent]:
-        """按节点粒度回传事件。每个节点执行完就把该节点内积压的事件吐出去。"""
+        """按节点粒度回传事件。"""
         run_id = uuid.uuid4().hex
         bus = Bus()
         register_run(run_id, bus)
@@ -288,7 +302,7 @@ class MnemoRunner:
 
 
 def context_overhead(facts: list[ResolvedFact], bundle_tokens: float) -> dict:
-    """注入量相对「把每条的原文全拼一遍」省了多少。"""
+    """注入量相对全量事实拼接的占比。"""
     raw = sum(memory_tokens(f.current) for f in facts if f.current)
     return {
         "assembled": round(bundle_tokens, 1),

@@ -1,11 +1,4 @@
-"""分层抽取编排。
-
-每一条消息走同一条路：
-    分句 -> 规则命中 -> （未命中的句子）小模型兜底 -> 实体归一 -> 置信度融合 -> 落库
-
-「分层」的意义不只在省成本：规则命中率高的那部分，置信度天然更高，
-落库时能拿到更好的初始权重；模型兜底那部分一律低置信，需要人工确认才升级。
-"""
+"""分层抽取：分句 -> 规则 -> 未命中走模型兜底 -> 实体归一 -> 落库。"""
 from __future__ import annotations
 
 import json
@@ -114,8 +107,7 @@ class ExtractorPipeline:
                 model_hits = self.fallback.extract(sent, context_entity=last_entity)
                 hits = []
                 for m in model_hits:
-                    # 模型通道的实体常常带口语尾巴（「结算平台这块儿现在」），
-                    # 走同一套清洗，否则同一个实体在库里会裂成好几条。
+                    # 模型通道的实体同样要清洗，否则同一实体会裂成多条
                     ent_name = clean_entity(m.entity)
                     if not is_plausible_entity(ent_name):
                         continue
@@ -149,7 +141,7 @@ class ExtractorPipeline:
         ent, quality = self._resolve_entity(hit.entity)
         conf = round(min(0.99, max(0.05, conf + quality)), 3)
 
-        # 负例约束：人工判定过的错值，只拦「同一句话里的同一个错值」
+        # 负例约束：只拦同一句话里的同一个错值
         if self._blocked(ent.id, hit.predicate, hit.value, hit.quote):
             self.store.log_rejected(hit.quote, "negative-constraint", conf, hit.rule_id)
             result.rejected.append({"quote": hit.quote, "conf": conf, "rule": "negative-constraint"})
@@ -191,11 +183,7 @@ class ExtractorPipeline:
             result.entities.append(ent.name)
 
     def _resolve_entity(self, name: str) -> tuple:
-        """实体归一并返回 (实体, 置信度调整量)。
-
-        精确命中 > 别名命中 > 模糊命中 > 新建。模糊命中会把置信度往下压一点，
-        因为「结算平台」和「结算系统」到底是不是一个东西，系统不该假装确定。
-        """
+        """实体归一，返回 (实体, 置信度调整量)；精确 > 别名 > 模糊 > 新建。"""
         name = name.strip()
         exact = self.store.conn.execute("SELECT * FROM entity WHERE name = ?", (name,)).fetchone()
         if exact:

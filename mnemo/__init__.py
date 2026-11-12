@@ -1,9 +1,8 @@
 """Mnemo —— 面向岗位交接的组织记忆系统。
 
-对外只需要这三个入口：
-    Store / ExtractorPipeline  —— 写入与抽取
-    MnemoRunner                —— 检索、消解、组装、成文（LangGraph 编排）
-    FeedbackLoop               —— 人工纠错与规则回写
+    Store / ExtractorPipeline  写入与抽取
+    MnemoRunner                检索、消解、组装、成文
+    FeedbackLoop               人工纠错与规则回写
 """
 from __future__ import annotations
 

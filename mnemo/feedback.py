@@ -1,14 +1,5 @@
-"""纠错闭环：人工修正 -> 规则与约束回写。
+"""纠错闭环：一次修正回写三样东西 —— pinned 断言、负例约束、泛化正则。"""
 
-这是「抽取准确率随使用收敛」的实现。一次修正在系统里留下三样东西：
-
-1. 一条 manual 来源的断言（pinned，置信 1.0）——现值以人说了算；
-2. 一份负例约束 (entity, predicate, wrong_value)——同一个坑不再踩第二次；
-3. 一条泛化后的正则（把原句里的取值位置改成通配）——同类句式下次直接抽对。
-
-生成的规则先落库、可停用，不直接改代码。这样「系统越用越准」这件事是可审计的，
-而不是模型权重里的一笔糊涂账。
-"""
 from __future__ import annotations
 
 import json
@@ -42,7 +33,7 @@ class CorrectionOutcome:
 
 
 def _norm_quote(q: str) -> str:
-    """原文比对前先去掉空白：断句/换行不同不该让约束失效。"""
+    """原文比对前去掉空白。"""
     return re.sub(r"\s+", "", (q or "").strip())
 
 
@@ -51,12 +42,7 @@ def _rid(prefix: str) -> str:
 
 
 def _generalize_pattern(quote: str, old_value: str, entity_name: str) -> tuple[str, dict] | None:
-    """从一句原文里剥出一条可复用的正则。
-
-    把 old_value 的位置换成 `(?P<val>...)`，其余部分按字面量转义（防止原文里的
-    `.`、`()` 变成元字符）。实体名钉死——交接语料里实体是专名，钉死比通配更准。
-    若 old_value 根本不在原文里，说明是抽取错位，退化为记忆化规则。
-    """
+    """把原文里 old_value 的位置换成 (?P<val>...) 得到泛化正则；old_value 不在原文里则退化为记忆规则。"""
     quote = quote.strip()
     if not quote:
         return None
@@ -96,7 +82,7 @@ class FeedbackLoop:
         if not new_value:
             raise ValueError("new_value 不能为空")
 
-        # 改成同一个值 = 确认，不该顺手记一条负例把这句话否掉
+        # 同值 = 确认，不记负例
         if new_value == a.value:
             return self.confirm(assertion_id, operator)
 
@@ -188,11 +174,7 @@ class FeedbackLoop:
     # ---------------------------------------------------------------- 约束与规则
     def _negate(self, entity_id: str, entity_name: str, predicate: str,
                 value: str, quote: str = "") -> bool:
-        """记一条负例：这个值在这个槽位、这句话里是错的。
-
-        约束绑定到原文，而不是把值永久拉黑——否则「张伟」被否过一次之后，
-        他真的重新接手时系统会把新消息也默默丢掉，那比抽错还糟。
-        """
+        """记一条负例：约束绑定原句，不按值永久拉黑。"""
         qn = _norm_quote(quote)
         for row in self.store.conn.execute(
             "SELECT id, template FROM learned_rule WHERE predicate = ? AND active = 1", (predicate,)
@@ -274,10 +256,7 @@ class FeedbackLoop:
 
 
 def negative_constraints(store: Store) -> tuple[set[tuple[str, str, str, str]], set[tuple[str, str, str]]]:
-    """拆成两套：
-    - scoped  (entity_id, predicate, value, quote)  绑定原句的负例，命中才拦
-    - legacy  (entity_id, predicate, value)         老数据没存 quote，只能按值拦
-    """
+    """scoped: 绑定原句的负例；legacy: 老数据无 quote，按值拦。"""
     scoped: set[tuple[str, str, str, str]] = set()
     legacy: set[tuple[str, str, str]] = set()
     for row in store.conn.execute(

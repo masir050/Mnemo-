@@ -1,8 +1,4 @@
-"""领域模型。
-
-核心是「实体 — 谓词 — 断言」三元结构：断言不是一个裸的键值对，
-而是带来源、时间窗、置信度与状态机的一条可追溯记录。
-"""
+"""领域模型：实体 — 谓词 — 断言。"""
 from __future__ import annotations
 
 import json
@@ -12,7 +8,7 @@ from typing import Any, Literal
 
 Status = Literal["active", "superseded", "expired", "disputed"]
 
-# 状态机的合法迁移。任何越界迁移都会被 store 拒绝并记一条告警。
+# 允许的状态迁移
 TRANSITIONS: dict[str, set[str]] = {
     "active": {"superseded", "expired", "disputed"},
     "disputed": {"active", "superseded", "expired"},
@@ -51,7 +47,6 @@ class Entity:
 
 @dataclass
 class Message:
-    """原始消息。断言必须能回溯到这里的某一条，这是可追溯性的底线。"""
     id: str
     channel: str                 # im / ticket / weekly / doc
     speaker: str
@@ -106,7 +101,6 @@ class Assertion:
 
 @dataclass
 class Candidate:
-    """检索阶段的一条候选，带三维打分明细（可观测性：分数要能解释）。"""
     assertion: Assertion
     relevance: float = 0.0
     recency: float = 0.0
@@ -127,7 +121,7 @@ class Candidate:
 
 @dataclass
 class TraceEvent:
-    """一个可观测事件，SSE 直接吐它。"""
+    """SSE 事件。"""
     stage: str
     ts: str = field(default_factory=now_iso)
     payload: dict[str, Any] = field(default_factory=dict)

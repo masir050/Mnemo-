@@ -1,9 +1,4 @@
-"""SQLite 持久层。
-
-选 SQLite 而不是外部向量库的理由：交接场景的数据量在 10^4 条断言量级，
-一次检索走 bigram 倒排 + 内存重排比维护一套向量库更省事，且整库单文件，
-「把记忆带走」这个交接刚需天然满足。
-"""
+"""SQLite 持久层：单文件整库，便于交接时直接带走。"""
 from __future__ import annotations
 
 import sqlite3
@@ -60,9 +55,7 @@ CREATE INDEX IF NOT EXISTS ix_assertion_entity ON assertion(entity_id);
 CREATE INDEX IF NOT EXISTS ix_assertion_status ON assertion(status);
 CREATE INDEX IF NOT EXISTS ix_assertion_source ON assertion(source_message_id);
 
--- bigram 倒排：中文没有空格，用二元组做索引。
--- 没用 FTS5(trigram)：它要求查询至少 3 个字符，短实体名（「张伟」「对账」）和
--- 单字谓词会漏；而且各字段权重不同（实体 1.5 / 谓词 1.2 / 取值 1.0），自己建表更好控。
+-- bigram 倒排：中文无空格；FTS5 trigram 至少 3 字符，2 字实体名会漏。
 CREATE TABLE IF NOT EXISTS term_index (
     term         TEXT NOT NULL,
     assertion_id TEXT NOT NULL,

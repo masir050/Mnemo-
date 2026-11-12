@@ -1,8 +1,4 @@
-"""检索：查询解析 -> 候选召回 -> 三维打分 -> 子图扩展。
-
-打分是可解释的：每条候选都留着 relevance / recency / importance 三项明细，
-面板和 SSE 都能把「为什么这条被注入」摊开给人看。
-"""
+"""检索：查询解析 -> 候选召回 -> 三维打分 -> 子图扩展。"""
 from __future__ import annotations
 
 import math
@@ -29,7 +25,7 @@ def parse_query(store: Store, text: str) -> Query:
     text = (text or "").strip()
     lowered = text.lower()
 
-    # 实体：对实体名和别名做最长匹配，长名优先，避免「张伟」被「张」切走
+    # 实体名/别名最长匹配
     names: list[tuple[str, str]] = []
     for ent in store.all_entities():
         for n in ent.all_names():
@@ -102,7 +98,7 @@ def retrieve(
             matched_terms=[t for t, _ in matched],
         )
 
-    # 一跳邻居：命中实体带出该实体的其他谓词，构成「子图」而不是孤立条目
+    # 一跳邻居：带出该实体的其他谓词
     for ent_name in query.entities:
         for row in store.conn.execute(
             "SELECT * FROM assertion WHERE entity_name = ? AND status IN ('active','disputed')", (ent_name,)
@@ -123,12 +119,10 @@ def retrieve(
             + settings.w_recency * c.recency
             + settings.w_importance * c.importance
         )
-        # 问「谁负责」时，owner 就该压过同实体下更新但无关的字段（比如地址）。
-        # 子图扩展会把邻居一并带出来，这条加成保证意图命中的谓词排在最前。
+        # 意图命中的谓词优先于同实体的其他字段
         if c.assertion.predicate in query.intents:
             c.score *= settings.intent_boost
-        # 查询里点名了实体，就别再往里塞别的实体的记忆。
-        # 只有跨实体但命中两个以上查询词（说明是同一句话里的共现，不是共享一个泛词）才放行。
+        # 点名实体后，跨实体候选需命中 2 个以上查询词才放行
         if query.entities and c.assertion.entity_name not in query.entities:
             if len(c.matched_terms) < 2:
                 continue

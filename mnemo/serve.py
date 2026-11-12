@@ -1,11 +1,4 @@
-"""启动服务：把「怎么进来的」和「怎么起服务」解耦。
-
-不管是点 IDE 的运行键、双击 run.bat，还是敲 uvicorn 命令，最后都落到这里：
-切到项目根 -> 查依赖 -> 没数据就灌一遍 -> 挑个没被占的端口 -> 拉起 uvicorn。
-
-放在包里而不是塞进入口脚本，是因为入口脚本可能被当成裸脚本执行
-（那时没有父包，相对导入会直接炸），而这个文件只依赖标准库，怎么跑都不会崩。
-"""
+"""启动服务：切到项目根、查依赖、没有数据先灌一遍、挑空闲端口、拉起 uvicorn。"""
 from __future__ import annotations
 
 import importlib.util
@@ -39,7 +32,7 @@ def missing_deps() -> list[str]:
 
 
 def pick_port(want: int) -> int:
-    """端口被占（多半是上次的服务没关干净）就往后顺延，别让用户去改配置。"""
+    """端口被占就往后顺延。"""
     for port in range(want, want + 20):
         with socket.socket() as s:
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

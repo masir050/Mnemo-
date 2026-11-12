@@ -1,9 +1,4 @@
-"""冲突消解。
-
-同一 slot（实体::谓词）下可能同时存在多条「有效」断言——典型来源是群聊和工单
-在不同时间说了不一致的话，而系统没有足够信号判断谁对。这里的策略是：
-不猜，按时间窗 + 置信度给出「现值 + 并列候选 + 变更轨迹」，并把不确定性暴露在输出里。
-"""
+"""冲突消解：同一 slot 下有多条有效断言时，输出「现值 + 并列候选 + 变更轨迹」。"""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -111,15 +106,14 @@ def resolve_candidates(
         if distinct:
             fact.conflict = True
             fact.alternates = [c.assertion for c in distinct]
-            # 两个值置信度接近时，把现值置信度往下压，避免下游把并列当成定论
+            # 置信度接近时压低现值置信度，避免下游把并列当成定论
             if abs(distinct[0].assertion.confidence - top.assertion.confidence) < 0.12:
                 fact.confidence = round(top.assertion.confidence * 0.85, 3)
                 fact.note = "多来源给出不同取值，置信度接近，建议人工确认"
             else:
                 fact.note = "存在其他来源的不同取值，已按置信度择优"
         elif top.assertion.status == "disputed":
-            # 唯一活着的值却还挂着 disputed：说明对立面已经被否决或取代，
-            # 争议事实上结束了。这时候再让人确认一遍是白问，顺手落回 active。
+            # 唯一活着的值仍挂 disputed：对立值已被否决，落回 active
             if len({c.assertion.value for c in live}) == 1:
                 store._set_status(top.assertion, "active", "对立值已被否决，自动恢复 active")
                 fact.note = "此前的分歧已由人工裁决"
@@ -129,8 +123,7 @@ def resolve_candidates(
 
         facts.append(fact)
 
-    # 保持检索阶段的相关度顺序，而不是按置信度重排：
-    # 用户问的是「支付网关」，就不该让一条高分噪声（另一个实体的低置信记忆）插到前面。
+    # 保持检索阶段的相关度顺序
     facts.sort(key=lambda f: -f.best_score)
     return facts
 

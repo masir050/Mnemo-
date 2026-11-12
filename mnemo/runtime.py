@@ -1,11 +1,7 @@
-"""运行期事件总线。
+"""运行期事件总线：节点只往 Bus 发事件，由外层决定输出到终端还是 SSE。
 
-节点内部不直接依赖 SSE / 日志，只往总线上发事件；由外层决定是打到终端、
-推到 SSE 连接，还是存进 run_log。这样「可观测」是编排层的事，业务节点不必知道。
-
-注意：不用 contextvars 传 bus。LangGraph 会把节点丢进工作线程执行，
-contextvar 不会自动传播（实测只有第一个节点能拿到），所以改成一张
-run_id -> Bus 的注册表，节点通过 state 里的 run_id 取。多线程安全。
+Bus 用 run_id 注册表传递，不用 contextvars —— LangGraph 在工作线程里跑节点，
+contextvar 不会自动传播。
 """
 from __future__ import annotations
 

@@ -1,12 +1,7 @@
-"""HTTP 接口 + SSE 流式回传。
-
-SSE 这件事在本项目里不是为了好看：检索、打分、消解、组装每一步都可能出问题，
-把这些中间结果实时吐出来，用户才能判断「这条答案是检索错了，还是抽错了，还是被预算裁掉了」。
-"""
+"""HTTP 接口 + SSE 流式回传。"""
 from __future__ import annotations
 
-# 允许在 IDE 里直接「运行」本文件：被当脚本执行时没有父包，相对导入会失败，
-# 这里补上项目根并按包导入（推荐入口仍是根目录的 main.py）。
+# 允许直接运行本文件：补上项目根并按包导入（推荐入口是 main.py）。
 if __name__ == "__main__" and not __package__:
     import sys as _sys
     from pathlib import Path as _Path
@@ -93,7 +88,7 @@ class ToggleIn(BaseModel):
 
 
 class IngestIn(BaseModel):
-    """灌一条原始消息。纠错闭环要能「改完再抽一遍」，所以入口必须留出来。"""
+    """灌一条原始消息并抽取。"""
     text: str
     speaker: str = "panel"
     channel: str = "im"
@@ -254,7 +249,7 @@ def ask_stream(q: str):
 
 @app.get("/api/trace")
 def trace(q: str, limit: int = 8):
-    """只做检索，不生成回答。用于面板里的「为什么召回这些」。"""
+    """只做检索，不生成回答。"""
     store = get_store()
     parsed = parse_query(store, q)
     cands = retrieve(store, parsed)
@@ -300,7 +295,7 @@ def correct(body: CorrectIn):
         raise HTTPException(404, str(exc))
     except ValueError as exc:
         raise HTTPException(400, str(exc))
-    # 改完立刻让抽取器用上新规则，不等重启
+    # 让抽取器立即加载新规则
     get_pipeline().refresh_rules()
     return out.as_dict()
 
@@ -344,7 +339,7 @@ def index():
 
 
 if __name__ == "__main__":
-    # 直接运行 api.py 时的兜底；正常应该跑项目根的 main.py
+    # 直接运行本文件时的兜底
     import sys
 
     from .serve import serve

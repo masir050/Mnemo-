@@ -1,8 +1,7 @@
 """把演示语料灌进记忆库。
 
-用法：
     python scripts/seed.py            # 重建 data/mnemo.db
-    python scripts/seed.py --keep     # 追加到现有库（去重靠 message.id）
+    python scripts/seed.py --keep     # 追加，按 message.id 去重
 """
 from __future__ import annotations
 

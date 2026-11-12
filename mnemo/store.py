@@ -1,9 +1,6 @@
 """记忆存储：实体归一、断言写入、版本链与状态机。
 
-写入路径上做了三件事，都是「旧值不丢失」这个前提的推论：
-1. 同值反复出现 -> 合并证据（Noisy-OR 提升置信度），不产生新版本；
-2. 值变了 -> 旧版本降权置 superseded，保留在链上供追溯；
-3. 与人工确认值冲突 -> 新值只能进 disputed，等人裁决，不静默覆盖。
+同一槽位上：同值合并证据，值变了旧版降权置 superseded，与人工确认值冲突的进 disputed。
 """
 from __future__ import annotations
 
@@ -27,12 +24,7 @@ def _eid(name: str) -> str:
 
 
 def bigrams(text: str) -> list[str]:
-    """中文二元切分 + 英文/数字按词。去噪后返回。
-
-    中文必须切成二元组，不能切成单字：单字索引会把「交付」和「支付」判成相关
-    （共享一个「付」），一条无关记忆就凭这个字挤进上下文。二元组没有这个问题，
-    代价是丢掉了「负责人」与「负责」之间的模糊匹配——在交接语料里可以接受。
-    """
+    """中文二元切分，英文/数字按词。单字切分会把「交付」和「支付」判成相关。"""
     text = (text or "").strip().lower()
     if not text:
         return []
@@ -76,7 +68,7 @@ class Store:
         self.conn = open_db(db_path)
 
     def close(self) -> None:
-        """关连接。Windows 下 sqlite 文件被占用会锁住目录，测试/关服务时必须显式关。"""
+        """关连接。Windows 下文件被占用会锁住目录。"""
         try:
             self.conn.close()
         except Exception:
@@ -256,9 +248,7 @@ class Store:
             self._insert(a)
             return a, "disputed"
 
-        # 2.5) 置信度明显低于现值 -> 不许静默覆盖。
-        # 这是「周报滞后转述打不过群里的实时变更」在数据层的落点：
-        # 时间更晚不等于更对，证据强度不够就只能挂起等人看。
+        # 2.5) 置信度明显低于现值 -> 挂起，不静默覆盖
         weaker = [
             x for x in live
             if x.value != a.value and not a.is_change and a.confidence < x.confidence - 0.06
@@ -269,9 +259,7 @@ class Store:
             self._insert(a)
             return a, "disputed"
 
-        # 3) 时间窗无法判定 -> 双方 disputed，交给 resolve 输出并列
-        #    判据：48 小时内出现两个不同值、置信度接近、且都不是显式变更表述。
-        #    显式变更（「改成/转给/延期到」）不进这条，否则正常演进也会被卡住。
+        # 3) 48 小时内两个不同值、置信度接近、都不是显式变更 -> 双方 disputed
         ambiguous = [
             x for x in live
             if x.value != a.value
@@ -326,7 +314,7 @@ class Store:
 
     # ---------------------------------------------------------------- 状态维护
     def sweep_expired(self, now: datetime | None = None) -> list[Assertion]:
-        """把越过 valid_to 的 active 断言置为 expired。惰性调用，不做后台定时器。"""
+        """把越过 valid_to 的 active 断言置为 expired。"""
         now = now or datetime.now(timezone.utc)
         expired: list[Assertion] = []
         for row in self.conn.execute("SELECT * FROM assertion WHERE status='active' AND valid_to IS NOT NULL"):
@@ -411,12 +399,12 @@ class Store:
 
 
 def _opening(ts: str | None) -> str:
-    """取时间窗起点；缺失时按「史前」处理，让补录能重排。"""
+    """取时间窗起点；缺失按「史前」处理。"""
     return ts or "0000"
 
 
 def _close_in_time(x: Assertion, a: Assertion, hours: float = 48.0) -> bool:
-    """两条断言的发生时间是否太近，近到不足以用「后说的为准」来判断。"""
+    """两条断言的发生时间是否近到无法用「后说的为准」判断。"""
     tx = parse_iso(x.valid_from or x.created_at)
     ta = parse_iso(a.valid_from or a.created_at)
     if tx is None or ta is None:

@@ -93,7 +93,6 @@
   .answer.on { display: block; }
   .cites { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
   .cite { font-size: 12px; color: var(--muted); }
-  .cite code { color: var(--ink); background: #eef1f6; padding: 1px 5px; border-radius: 4px; }
 
   /* 记忆面板 */
   .ent { border-bottom: 1px solid var(--line); }
@@ -367,7 +366,7 @@ function ask(text) {
       answer.innerHTML = escapeHtml(ev.answer).replace(/\n/g, '<br>')
         + (ev.citations && ev.citations.length
           ? '<div class="cites">' + ev.citations.map(c =>
-              `<div class="cite">↳ <code>${c.source}</code> ${escapeHtml(c.source_quote || '')}</div>`).join('') + '</div>'
+              `<div class="cite" title="${escapeHtml(c.source)}">↳ ${escapeHtml(c.source_label || c.source)}　「${escapeHtml(c.source_quote || '')}」</div>`).join('') + '</div>'
           : '');
       return;
     }

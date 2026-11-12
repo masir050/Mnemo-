@@ -1,13 +1,8 @@
 """一键启动：准备环境 -> 装依赖 -> 灌演示数据 -> 起服务。
 
-被 run.bat 调用，也可以在终端里直接跑：
-
-    python scripts/bootstrap.py            # 启动服务并打开面板
-    python scripts/bootstrap.py --check    # 只检查环境，不起服务（排错用）
+    python scripts/bootstrap.py            # 启动服务
+    python scripts/bootstrap.py --check    # 只检查环境
     python scripts/bootstrap.py --no-browser
-
-为什么要有这个文件：run.bat 只能判断"命令有没有报错"，判断不了"依赖装没装"。
-把流程放进 Python，出错能打印人能看懂的原因，而不是一个窗口一闪就没。
 """
 from __future__ import annotations
 
@@ -45,12 +40,7 @@ def say(msg: str = "") -> None:
 
 
 def probe(py: str) -> tuple[bool, str]:
-    """真正 import 一遍，而不是只查 find_spec。
-
-    find_spec 只能证明「包目录在」，证明不了「能加载」：.venv 里混进别的 Python
-    版本的二进制包（比如 3.13 的 whl 装进 3.12 的环境）时，find_spec 全过，
-    import 才炸。所以这里必须实际执行导入。
-    """
+    """真正 import 一遍。find_spec 只能证明包目录在，证明不了能加载。"""
     code = "import fastapi, uvicorn, langgraph, pydantic"
     r = subprocess.run([py, "-c", code], capture_output=True, text=True, errors="replace")
     if r.returncode == 0:

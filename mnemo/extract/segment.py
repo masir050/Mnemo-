@@ -1,9 +1,4 @@
-"""轻量句法分析：分句 + 依存骨架。
-
-没有引 HanLP/LTP：交接语料是短句、动宾结构为主，一套围绕「的/是/由/把」的
-规则就能把主语、谓语、宾语三段切出来，足够给规则模板定位槽位；
-而且零模型下载、可解释、改了立刻生效。需要更强句法时，`analyse()` 是唯一替换点。
-"""
+"""轻量句法分析：分句 + 依存骨架（围绕「的/是/由/把」的规则，无外部分词模型）。"""
 from __future__ import annotations
 
 import re
@@ -20,7 +15,7 @@ SUBJECT_TAIL = ("的", "关于")
 
 @dataclass
 class Frame:
-    """一句话的依存骨架（简化版：主语 - 谓语 - 宾语）。"""
+    """依存骨架。"""
     text: str
     subject: str = ""
     predicate: str = ""
@@ -46,10 +41,7 @@ _NP = r"[\u4e00-\u9fa5A-Za-z0-9_\-]{2,14}"
 def analyse(sentence: str) -> Frame:
     """把一句话拆成 (主语, 谓语标记, 宾语)。
 
-    依赖信号：
-    - 「X的Y是Z」-> 定语结构，X 是主语，Y 是谓语，Z 是宾语
-    - 「由X负责」-> 介词引导的施事，X 是宾语位的人
-    - 「X改成Y」-> 主语 X，谓语 改成，宾语 Y
+    「X的Y是Z」X 作主语；「由X负责」X 在宾语位；「X改成Y」X 作主语。
     """
     frame = Frame(text=sentence)
     s = sentence.strip()
@@ -88,7 +80,7 @@ def analyse(sentence: str) -> Frame:
 
 
 def extract_np(text: str) -> str:
-    """从一个片段里剥出最可能的实体短语：去掉句末语气词和补充说明。"""
+    """从片段里剥出实体短语，去掉句末语气词。"""
     text = re.split(r"[（(]", text)[0]
     text = re.sub(r"(了|的|呢|吧|啊|哦|哈|一下|那边|这边)$", "", text.strip())
     return text.strip()

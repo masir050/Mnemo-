@@ -106,7 +106,7 @@ PATH 里没有 `python` 时，用环境变量 `MNEMO_PYTHON` 指到 `python.exe`
 {"id": "m001", "channel": "im", "speaker": "张伟", "ts": "2026-10-08T09:12:00+08:00", "thread": "支付网关交接", "text": "支付网关的负责人是张伟。"}
 ```
 
-- `channel` 决定来源权重：`ticket` 0.90 > `weekly` 0.72 > `im` 0.60。
+- `channel` 决定来源权重：`ticket` 0.90 > `im` 0.78 > `weekly` 0.66。
 - 单条灌入：`POST /api/ingest {"text": "...", "speaker": "...", "ts": "..."}`。
 - 重灌：`.\.venv\Scripts\python.exe scripts\seed.py`（重建库）。
 

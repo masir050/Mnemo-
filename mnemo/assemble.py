@@ -1,14 +1,4 @@
-"""上下文组装：把候选记忆压进 token 预算。
-
-三条规则决定了「注入量能压到全量拼接的两成以内」：
-1. 同一 slot 只注入现值，历史版本压成一行轨迹，不重复占预算；
-2. 按实体分组渲染——实体名只出现一次，不再逐条重复「支付网关」「支付网关」；
-3. 冲突项优先占位（它最影响判断，且通常只有一两行），剩余预算贪心填充，
-   装不下的直接丢弃并记账（dropped），不静默截断。
-
-渲染里刻意不带完整来源串：来源通过 API 的 citations / 面板回溯，
-不需要每行都占 8 个 token。冲突行例外——那种行必须能一眼看出是谁说的。
-"""
+"""上下文组装：同一 slot 只注入现值，按实体分组，预算内贪心填充，装不下的记入 dropped。"""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -77,7 +67,7 @@ def assemble(
     bundle.lines.append(header)
     used = estimate_tokens(header) + 2
 
-    # --- 1. 按实体分组，相关度高的组先整组装入（组内冲突行天然排在前面）---
+    # 1. 按实体分组，相关度高的组先整组装入
     groups: dict[str, list[ResolvedFact]] = {}
     order: list[str] = []
     for fact in facts:
@@ -120,7 +110,7 @@ def assemble(
         bundle.lines.extend(pending)
         used += cost
 
-    # --- 2. 兜底：完全没有 slot 聚合结果时（如首次冷启动），退回按分数取候选 ---
+    # 2. 没有 slot 聚合结果时，按分数取候选
     if not groups and candidates:
         for c in candidates:
             if used >= budget and len(bundle.included) >= min_keep:

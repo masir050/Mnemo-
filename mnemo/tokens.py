@@ -1,10 +1,4 @@
-"""token 估算。
-
-不引 tiktoken：目标是「同一套估算口径下比较注入量与全量拼接量」的相对比例，
-不需要绝对精确。口径：中文 1 字 ≈ 0.75 token，ASCII 每 4 字符 ≈ 1 token，
-再对每条记忆加固定结构开销（标签/来源/时间）。三处用法共用这一份实现，
-所以比值口径一致。
-"""
+"""token 估算：中文 1 字 ≈ 0.75 token，ASCII 4 字符 ≈ 1 token，另加固定结构开销。"""
 from __future__ import annotations
 
 import re
@@ -12,8 +6,8 @@ import re
 _CJK = re.compile(r"[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]")
 _ASCII = re.compile(r"[\x00-\x7f]")
 
-PER_MEMORY_OVERHEAD = 6      # “- [owner] 张伟 (0.92, 来源 im#12)” 这类标签的固定开销
-PER_MESSAGE_OVERHEAD = 4     # 全量拼接时每条消息的“发言人(时间):”前缀
+PER_MEMORY_OVERHEAD = 6      # 注入行的标签开销
+PER_MESSAGE_OVERHEAD = 4     # 全量拼接时每条消息的前缀开销
 
 
 def estimate_tokens(text: str) -> float:
@@ -26,7 +20,7 @@ def estimate_tokens(text: str) -> float:
 
 
 def render_assertion_line(a, *, with_source: bool = True) -> str:
-    """一条记忆渲染成注入行。评分最高的一条会带时间与来源，供模型判断新旧。"""
+    """一条记忆渲染成注入行。"""
     head = f"- [{a.predicate}] {a.entity_name} → {a.value}"
     if not with_source:
         return head
@@ -47,5 +41,5 @@ def message_tokens(m) -> float:
 
 
 def full_concat_tokens(messages) -> float:
-    """基线：把所有历史消息拼进上下文（不筛选）。"""
+    """所有消息全拼进上下文的基线。"""
     return sum(message_tokens(m) for m in messages)

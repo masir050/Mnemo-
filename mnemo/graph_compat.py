@@ -1,9 +1,4 @@
-"""LangGraph 缺失时的最小兼容实现。
-
-只实现本项目用到的子集：StateGraph / add_node / add_edge / add_conditional_edges /
-compile / invoke / stream(stream_mode="values")。存在 langgraph 时不会被加载，
-因此两套实现的行为必须保持一致——tests/test_graph_parity.py 用同一批输入跑两遍做比对。
-"""
+"""LangGraph 缺失时的最小兼容实现：StateGraph / add_node / add_edge / compile / invoke / stream。"""
 from __future__ import annotations
 
 from typing import Any, Callable, Iterator
