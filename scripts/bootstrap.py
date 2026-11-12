@@ -12,12 +12,10 @@
 from __future__ import annotations
 
 import os
+import re
 import socket
 import subprocess
 import sys
-import threading
-import time
-import webbrowser
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -26,9 +24,13 @@ VENV_PY = VENV / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 REQUIREMENTS = ROOT / "requirements.txt"
 DB = ROOT / "data" / "mnemo.db"
 SEED = ROOT / "scripts" / "seed.py"
+ENTRY = ROOT / "main.py"
 
-# 运行期真正要 import 到的包；有一个缺失就重装
-NEEDED = ("fastapi", "uvicorn", "langgraph")
+# 这些报错说明是「二进制包和解释器版本对不上」，重装整个依赖能救
+ABI_HINTS = re.compile(
+    r"ArgsKwargs|DLL load failed|unknown location|cannot import name|WinError 126",
+    re.IGNORECASE,
+)
 
 DEFAULT_PORT = 8731
 MIRROR = "https://pypi.tuna.tsinghua.edu.cn/simple"
@@ -42,16 +44,28 @@ def say(msg: str = "") -> None:
     print(msg, flush=True)
 
 
-def missing_deps(py: str) -> list[str]:
-    code = "import importlib.util as u,sys;sys.exit(0 if all(u.find_spec(m) for m in %r) else 1)" % (NEEDED,)
-    return [] if subprocess.run([py, "-c", code], capture_output=True).returncode == 0 else list(NEEDED)
+def probe(py: str) -> tuple[bool, str]:
+    """真正 import 一遍，而不是只查 find_spec。
+
+    find_spec 只能证明「包目录在」，证明不了「能加载」：.venv 里混进别的 Python
+    版本的二进制包（比如 3.13 的 whl 装进 3.12 的环境）时，find_spec 全过，
+    import 才炸。所以这里必须实际执行导入。
+    """
+    code = "import fastapi, uvicorn, langgraph, pydantic"
+    r = subprocess.run([py, "-c", code], capture_output=True, text=True, errors="replace")
+    if r.returncode == 0:
+        return True, ""
+    return False, (r.stderr or r.stdout or "").strip()[-600:]
 
 
-def pip_install(py: str) -> bool:
-    base = [py, "-m", "pip", "install", "--disable-pip-version-check", "-q", "-r", str(REQUIREMENTS)]
+def pip_install(py: str, force: bool = False) -> bool:
+    base = [py, "-m", "pip", "install", "--disable-pip-version-check", "-q"]
+    if force:
+        base.append("--force-reinstall")
+    base += ["-r", str(REQUIREMENTS)]
     for extra in ([], ["-i", MIRROR]):
         label = "默认源" if not extra else "清华镜像"
-        say(f"[*] 安装依赖（{label}）...")
+        say(f"[*] {'重装' if force else '安装'}依赖（{label}）...")
         if subprocess.run(base + extra).returncode == 0:
             return True
         say(f"[!] {label}装失败了，换下一个方式")
@@ -85,14 +99,27 @@ def main() -> int:
 
     py = sys.executable
     say(f"[*] 解释器：{py}")
+    say(f"[*] 版本：{sys.version.split()[0]}（{sys.maxsize.bit_length() + 1} 位）")
 
-    # ---- 2. 依赖：按 import 结果判断，不看文件 ------------------------------
-    if missing_deps(py):
-        if not pip_install(py) or missing_deps(py):
-            say("")
-            say("[x] 依赖装不上。请手动执行下面这行，看具体报错：")
+    # ---- 2. 依赖：真的 import 一遍，不通过就重装 ----------------------------
+    ok, err = probe(py)
+    if not ok:
+        say("[*] 依赖自检没过，重装一遍（首次运行，或 .venv 被别的 Python 装坏了，都会走到这里）...")
+        pip_install(py, force=True)
+        ok, err = probe(py)
+    if not ok:
+        say("")
+        say("[x] 依赖装不上。先看自己属于哪种：")
+        if ABI_HINTS.search(err):
+            say("    .venv 里混进了别的 Python 版本的编译包（例如 cp313 的轮子装进 cp312 环境），")
+            say("    这种混装没法就地修：把 .venv 整个删掉，再跑一次本脚本。")
+        else:
+            say("    依赖根本没装上，手动执行下面这行看具体报错：")
             say(f'    "{py}" -m pip install -r "{REQUIREMENTS}" -i {MIRROR}')
-            return 1
+        say("")
+        say("    ---- 最后一次导入报错 ----")
+        say(err or "(无输出)")
+        return 1
     say("[*] 依赖就绪")
 
     # ---- 3. 演示数据 --------------------------------------------------------
@@ -103,25 +130,21 @@ def main() -> int:
             return 1
 
     if check_only:
-        say("[*] 环境检查通过。去掉 --check 就会启动服务。")
+        say("")
+        say("[*] 环境检查通过。接下来两种启动方式都行：")
+        say(f'    - IDE 里点 {ENTRY.name} 的绿色三角')
+        say(f'    - 命令行 "{py}" main.py')
         return 0
 
     # ---- 4. 起服务 ----------------------------------------------------------
+    # 端口只在这里挑一次，URL 由 main.py 打印（它才是真正的入口，别印两遍）
     port = pick_port(int(os.environ.get("MNEMO_PORT", DEFAULT_PORT)))
-    url = f"http://127.0.0.1:{port}/"
-    say("")
-    say(f"  Mnemo 记忆面板  {url}")
-    say("  关掉这个窗口 / 按 Ctrl+C 即停止服务")
-    say("")
 
-    if "--no-browser" not in sys.argv:
-        threading.Thread(target=lambda: (time.sleep(2.0), webbrowser.open(url)), daemon=True).start()
-
+    cmd = [py, str(ENTRY), "--port", str(port)]
+    if "--no-browser" in sys.argv:
+        cmd.append("--no-browser")
     try:
-        return subprocess.call(
-            [py, "-m", "uvicorn", "mnemo.api:app", "--host", "127.0.0.1", "--port", str(port)],
-            cwd=str(ROOT),
-        )
+        return subprocess.call(cmd, cwd=str(ROOT))
     except KeyboardInterrupt:
         return 0
 

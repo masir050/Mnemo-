@@ -5,6 +5,15 @@ SSE 这件事在本项目里不是为了好看：检索、打分、消解、组�
 """
 from __future__ import annotations
 
+# 允许在 IDE 里直接「运行」本文件：被当脚本执行时没有父包，相对导入会失败，
+# 这里补上项目根并按包导入（推荐入口仍是根目录的 main.py）。
+if __name__ == "__main__" and not __package__:
+    import sys as _sys
+    from pathlib import Path as _Path
+
+    _sys.path.insert(0, str(_Path(__file__).resolve().parent.parent))
+    __package__ = "mnemo"
+
 import json
 import os
 import uuid
@@ -332,3 +341,14 @@ def rejected(limit: int = 50):
 @app.get("/")
 def index():
     return FileResponse(WEB_DIR / "index.html")
+
+
+if __name__ == "__main__":
+    # 直接运行 api.py 时的兜底；正常应该跑项目根的 main.py
+    import sys
+
+    from .serve import serve
+
+    _argv = sys.argv[1:]
+    _port = int(_argv[_argv.index("--port") + 1]) if "--port" in _argv else None
+    raise SystemExit(serve(port=_port, open_browser="--no-browser" not in _argv))
